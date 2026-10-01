@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import journey
+
+MARK = re.compile(
+    r" \(last: (?:PASS|FAIL simulate|FAIL judge|not run)"
+    r"(?: [0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2})?\)$"
+)
+HERE = Path(__file__).resolve().parent
+
+
+def instruct(journey_path, results, lesson, vectors):
+    path = Path(journey_path)
+    text = path.read_text()
+    visiting = lessons_to_visit(text, lesson)
+    require_one_prompt(text, visiting)
+    for name in visiting:
+        refresh_heading(path, results, name)
+    report = distance_report(path, lesson, vectors)
+    messages = []
+    failed = False
+    for name in visiting:
+        message, bad = decision(name, results)
+        messages.append(message)
+        failed = failed or bad
+    printed = render(report, visiting, messages, bool(lesson))
+    printed.extend(toc_corrections(text, path.read_text()))
+    print("\n".join(printed))
+    if failed:
+        raise SystemExit(1)
+
+
+def lessons_to_visit(text, lesson):
+    present = journey.order_text(text)
+    if not lesson:
+        return present
+    if lesson not in present:
+        raise SystemExit(f"unknown lesson: {lesson}")
+    return [lesson]
+
+
+def require_one_prompt(text, visiting):
+    lines = text.splitlines()
+    for lesson in visiting:
+        start, end = section_span(lines, lesson)
+        count = sum(1 for line in lines[start:end] if line == "*PROMPT TO TEST*")
+        if count != 1:
+            raise SystemExit(f"{lesson} has {count} prompts")
+
+
+def decision(lesson, results):
+    if not (Path(results) / lesson / "JUDGE.md").is_file():
+        return f"{lesson} not yet judged", False
+    word = verdict_of(results, lesson)
+    if word == "pass":
+        return f"{lesson} smooth", False
+    if word == "fail":
+        return f"{lesson} left unchanged: newest judgement is verdict: fail", True
+    return f"{lesson} left unchanged: no passing judgement", True
+
+
+def render(report, visiting, messages, only):
+    lines = report.splitlines()
+    if only:
+        return lines + messages
+    paired = []
+    for lesson, message in zip(visiting, messages):
+        paired.append(distance_line(report, lesson))
+        paired.append(message)
+    return lines + paired
+
+
+def toc_corrections(before, after):
+    before_heads = headings(before)
+    after_heads = headings(after)
+    corrections = []
+    before_ids = [lesson for lesson, _line in before_heads]
+    after_ids = [lesson for lesson, _line in after_heads]
+    if before_ids != after_ids:
+        corrections.append("TOC correction: order " + " ".join(before_ids) + " -> " + " ".join(after_ids))
+    after_map = dict(after_heads)
+    for lesson, line in before_heads:
+        if lesson not in after_map:
+            continue
+        old = MARK.sub("", line)
+        new = MARK.sub("", after_map[lesson])
+        if old != new:
+            corrections.append(f"TOC correction: {old} -> {new}")
+    return corrections
+
+
+def headings(text):
+    found = []
+    for line in text.splitlines():
+        match = journey.HEADING.match(line)
+        if match:
+            found.append((match.group(1), line))
+    return found
+
+
+def section_span(lines, lesson):
+    start = None
+    for index, line in enumerate(lines):
+        if line.startswith(f"# {lesson}:"):
+            start = index
+            break
+    if start is None:
+        return None
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if journey.HEADING.match(lines[index]):
+            end = index
+            break
+    return start, end
+
+
+def refresh_heading(journey, results, lesson):
+    result = run_script("lesson-status", "heading", str(journey), str(results), lesson)
+    if result.returncode != 0:
+        raise SystemExit(result.stderr.strip() or "lesson-status failed")
+
+
+def verdict_of(results, lesson):
+    result = run_script("lesson-status", "verdict", str(results), lesson)
+    if result.returncode != 0:
+        raise SystemExit(result.stderr.strip() or "lesson-status failed")
+    return result.stdout.strip()
+
+
+def distance_report(journey, lesson, vectors):
+    args = ["prompt-distance", str(journey)]
+    if lesson:
+        args += ["--lesson", lesson]
+    if vectors:
+        args += ["--vectors", str(vectors)]
+    result = run_script(*args)
+    if result.returncode != 0:
+        raise SystemExit(result.stderr.strip() or "prompt-distance failed")
+    return result.stdout
+
+
+def distance_line(report, lesson):
+    for line in report.splitlines():
+        if line.split()[0] == lesson and "previous=" in line:
+            return line
+    raise SystemExit(f"no distance line for {lesson}")
+
+
+def run_script(*args):
+    return subprocess.run([str(HERE / args[0]), *args[1:]], capture_output=True, text=True)
+
+
+def main(argv):
+    journey = ""
+    results = ""
+    lesson = ""
+    vectors = ""
+    index = 0
+    while index < len(argv):
+        token = argv[index]
+        if token == "--lesson":
+            lesson = argv[index + 1]
+            index += 2
+        elif token == "--vectors":
+            vectors = argv[index + 1]
+            index += 2
+        elif not journey:
+            journey = token
+            index += 1
+        elif not results:
+            results = token
+            index += 1
+        else:
+            raise SystemExit(f"unknown argument: {token}")
+    if not journey or not results:
+        raise SystemExit("usage: instruct <JOURNEY.md> <results> [--lesson ID] [--vectors FILE]")
+    instruct(journey, results, lesson, vectors)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

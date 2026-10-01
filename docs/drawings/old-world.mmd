@@ -1,0 +1,16 @@
+flowchart TB
+  req["Requirements change"]
+  code["👤 Change code"]
+  docs["👤 Change documentation"]
+
+  req --> code
+  code --> docs
+  docs --> req
+
+  classDef req fill:#ffffff,stroke:#9e9e9e,color:#757575
+  classDef code fill:#c62828,stroke:#8e0000,color:#ffffff
+  classDef docs fill:#e0e0e0,stroke:#9e9e9e,color:#424242
+
+  class req req
+  class code code
+  class docs docs

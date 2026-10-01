@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+import math
+import re
+import sys
+from pathlib import Path
+
+MIN_TOKEN_LENGTH = 4
+COSINE_MIN = "+0.8500"
+STOPWORDS = frozenset(
+    {
+        "about",
+        "after",
+        "also",
+        "been",
+        "before",
+        "both",
+        "does",
+        "each",
+        "from",
+        "have",
+        "into",
+        "more",
+        "most",
+        "only",
+        "other",
+        "over",
+        "same",
+        "some",
+        "such",
+        "than",
+        "that",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "under",
+        "were",
+        "what",
+        "when",
+        "where",
+        "which",
+        "while",
+        "with",
+        "within",
+        "without",
+        "your",
+    }
+)
+
+
+def main():
+    if len(sys.argv) != 5:
+        raise SystemExit("usage: term-drift JOURNEY MATERIAL NATURAL PINNED")
+    journey = Path(sys.argv[1])
+    material = Path(sys.argv[2])
+    allowed = read_pairs(Path(sys.argv[3]))
+    banned = read_pairs(Path(sys.argv[4]))
+    overlap = allowed & banned
+    if overlap:
+        names = " ".join(f"{left} {right}" for left, right in sorted(overlap))
+        raise SystemExit(f"pair is both natural and pinned: {names}")
+    places = token_places(sources(journey, material))
+    lines = []
+    failed = False
+    names = sorted(places)
+    for index, left in enumerate(names):
+        for right in names[index + 1 :]:
+            kind = cluster_kind(left, right)
+            if kind is None:
+                continue
+            label, score = kind
+            lines.append(f"{left} {min(places[left])} {right} {min(places[right])} {label} {score}\n")
+            pair = (left, right)
+            if pair in banned or pair not in allowed:
+                failed = True
+    sys.stdout.write("".join(sorted(lines)))
+    if failed:
+        raise SystemExit(1)
+
+
+def sources(journey, material):
+    found = lesson_texts(journey.read_text())
+    found.extend(material_texts(material))
+    return found
+
+
+def token_places(found):
+    places = {}
+    for path, text in found:
+        for token in tokens(text):
+            places.setdefault(token, set()).add(path)
+    return places
+
+
+def cluster_kind(left, right):
+    if right == left + "s":
+        return "plural", "1"
+    if edit_distance(left, right) == 1:
+        return "edit", "1"
+    score = f"{trigram_cosine(left, right):+.4f}"
+    if score >= COSINE_MIN:
+        return "cosine", score
+    return None
+
+
+def lesson_texts(text):
+    lines = text.splitlines()
+    found = []
+    index = 0
+    while index < len(lines):
+        if not lines[index].startswith("# ") or ":" not in lines[index][2:]:
+            index += 1
+            continue
+        # skip non-lesson top-level if any; lesson ids are [a-z0-9-]+
+        name = lines[index][2:].split(":", 1)[0].strip()
+        if not all(ch.isalnum() or ch == "-" for ch in name):
+            index += 1
+            continue
+        end = index + 1
+        while end < len(lines):
+            if lines[end].startswith("# ") and ":" in lines[end][2:]:
+                other = lines[end][2:].split(":", 1)[0].strip()
+                if all(ch.isalnum() or ch == "-" for ch in other):
+                    break
+            end += 1
+        parts = [fenced_prompt(lines[index:end]), observation_bullets(lines[index:end])]
+        body = "\n".join(part for part in parts if part)
+        if body:
+            found.append((name, body))
+        index = end
+    return found
+
+
+def fenced_prompt(lines):
+    try:
+        marker = lines.index("*PROMPT TO TEST*")
+    except ValueError:
+        return ""
+    opener = None
+    for index in range(marker + 1, len(lines)):
+        if lines[index].startswith("```"):
+            opener = index
+            break
+    if opener is None:
+        raise SystemExit("prompt fence is missing")
+    for index in range(opener + 1, len(lines)):
+        if lines[index].startswith("```"):
+            return "\n".join(lines[opener + 1 : index])
+    raise SystemExit("prompt fence is not closed")
+
+
+def observation_bullets(lines):
+    try:
+        marker = lines.index("*EXPECTED OBSERVATIONS*")
+    except ValueError:
+        return ""
+    bullets = []
+    for line in lines[marker + 1 :]:
+        if line.startswith("- "):
+            bullets.append(line[2:])
+        elif line.strip() == "":
+            continue
+        else:
+            break
+    return "\n".join(bullets)
+
+
+def material_texts(root):
+    found = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        data = path.read_bytes()
+        if b"\0" in data:
+            raise SystemExit(f"not text: {path}")
+        try:
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            raise SystemExit(f"not text: {path}")
+        found.append((path.relative_to(root).as_posix(), text))
+    return found
+
+
+def tokens(text):
+    found = []
+    for token in re.findall(r"[a-z0-9.]+", text.lower()):
+        if len(token) < MIN_TOKEN_LENGTH or token in STOPWORDS:
+            continue
+        found.append(token)
+    return found
+
+
+def edit_distance(left, right):
+    if len(left) == len(right):
+        return sum(a != b for a, b in zip(left, right))
+    return levenshtein(left, right)
+
+
+def levenshtein(left, right):
+    previous = list(range(len(right) + 1))
+    for i, left_char in enumerate(left, start=1):
+        current = [i]
+        for j, right_char in enumerate(right, start=1):
+            current.append(
+                min(
+                    current[j - 1] + 1,
+                    previous[j] + 1,
+                    previous[j - 1] + (left_char != right_char),
+                )
+            )
+        previous = current
+    return previous[-1]
+
+
+def trigram_cosine(left, right):
+    left_counts = trigrams(left)
+    right_counts = trigrams(right)
+    dot = sum(count * right_counts[gram] for gram, count in left_counts.items() if gram in right_counts)
+    left_norm = math.sqrt(sum(count * count for count in left_counts.values()))
+    right_norm = math.sqrt(sum(count * count for count in right_counts.values()))
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    return dot / (left_norm * right_norm)
+
+
+def trigrams(text):
+    counts = {}
+    for index in range(len(text) - 2):
+        gram = text[index : index + 3]
+        counts[gram] = counts.get(gram, 0) + 1
+    return counts
+
+
+def read_pairs(path):
+    pairs = []
+    for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        if line == "":
+            continue
+        parts = line.split(" ")
+        if len(parts) != 2 or parts[0] >= parts[1]:
+            raise SystemExit(f"{path}:{line_number}: pair must be two sorted tokens")
+        pairs.append((parts[0], parts[1]))
+    if pairs != sorted(pairs):
+        raise SystemExit(f"{path}: pairs are not sorted")
+    return set(pairs)
+
+
+if __name__ == "__main__":
+    main()

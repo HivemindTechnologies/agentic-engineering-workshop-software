@@ -1,0 +1,174 @@
+.
+├── .claude
+│   ├── agents
+│   │   └── participant.md
+│   ├── commands
+│   ├── hooks
+│   │   └── log-prompt.sh
+│   ├── skills
+│   │   ├── implement
+│   │   │   └── SKILL.md
+│   │   └── refine
+│   │       └── SKILL.md
+│   └── settings.json
+├── .githooks
+│   └── pre-commit
+├── .github
+│   └── workflows
+│       └── ci.yml
+├── .gitignore
+build.sbt
+docs
+│   └── PROMPTS.md
+docs
+│       └── specs
+│           └── SPEC.v1-todo-list-cli-mvp.md
+src
+│               └── main
+│                   └── scala
+│                       └── todo
+│                           └── Cli.scala
+src
+│                               └── main
+│                                   └── scala
+│                                       └── todo
+│                                           └── Greeting.scala
+src
+│                                               └── main
+│                                                   └── scala
+│                                                       └── todo
+│                                                           └── Main.scala
+src
+│                                                               └── main
+│                                                                   └── scala
+│                                                                       └── todo
+│                                                                           └── core
+│                                                                               └── Title.scala
+src
+│                                                                                   └── main
+│                                                                                       └── scala
+│                                                                                           └── todo
+│                                                                                               └── core
+│                                                                                                   └── Todo.scala
+src
+│                                                                                                       └── main
+│                                                                                                           └── scala
+│                                                                                                               └── todo
+│                                                                                                                   └── core
+│                                                                                                                       └── TodoId.scala
+src
+│                                                                                                                           └── main
+│                                                                                                                               └── scala
+│                                                                                                                                   └── todo
+│                                                                                                                                       └── render
+│                                                                                                                                           └── Renderer.scala
+src
+│                                                                                                                                               └── main
+│                                                                                                                                                   └── scala
+│                                                                                                                                                       └── todo
+│                                                                                                                                                           └── store
+│                                                                                                                                                               └── Store.scala
+src
+│                                                                                                                                                                   └── main
+│                                                                                                                                                                       └── scala
+│                                                                                                                                                                           └── todo
+│                                                                                                                                                                               └── store
+│                                                                                                                                                                                   └── TodoRecord.scala
+src
+│                                                                                                                                                                                       └── test
+│                                                                                                                                                                                           └── scala
+│                                                                                                                                                                                               └── todo
+│                                                                                                                                                                                                   └── CliSuite.scala
+src
+│                                                                                                                                                                                                       └── test
+│                                                                                                                                                                                                           └── scala
+│                                                                                                                                                                                                               └── todo
+│                                                                                                                                                                                                                   └── GreetingSuite.scala
+src
+│                                                                                                                                                                                                                       └── test
+│                                                                                                                                                                                                                           └── scala
+│                                                                                                                                                                                                                               └── todo
+│                                                                                                                                                                                                                                   └── core
+│                                                                                                                                                                                                                                       └── TitleSuite.scala
+src
+│                                                                                                                                                                                                                                           └── test
+│                                                                                                                                                                                                                                               └── scala
+│                                                                                                                                                                                                                                                   └── todo
+│                                                                                                                                                                                                                                                       └── core
+│                                                                                                                                                                                                                                                           └── TodosPropertySuite.scala
+src
+│                                                                                                                                                                                                                                                               └── test
+│                                                                                                                                                                                                                                                                   └── scala
+│                                                                                                                                                                                                                                                                       └── todo
+│                                                                                                                                                                                                                                                                           └── core
+│                                                                                                                                                                                                                                                                               └── TodosSuite.scala
+src
+│                                                                                                                                                                                                                                                                                   └── test
+│                                                                                                                                                                                                                                                                                       └── scala
+│                                                                                                                                                                                                                                                                                           └── todo
+│                                                                                                                                                                                                                                                                                               └── render
+│                                                                                                                                                                                                                                                                                                   └── RendererSuite.scala
+src
+│                                                                                                                                                                                                                                                                                                       └── test
+│                                                                                                                                                                                                                                                                                                           └── scala
+│                                                                                                                                                                                                                                                                                                               └── todo
+│                                                                                                                                                                                                                                                                                                                   └── store
+├── docs
+│   ├── rules
+│   │   └── WOW.md
+│   ├── specs
+│   │   └── SPEC.v1-todo-list-cli-mvp.md
+│   └── PROMPTS.md
+├── project
+│   ├── project
+│   ├── build.properties
+│   └── plugins.sbt
+├── scripts
+│   └── spec-check-scala
+│       ├── project
+│       │   └── build.properties
+│       ├── src
+│       │   └── main
+│       │       └── scala
+│       │           └── SpecCheck.scala
+│       ├── .gitignore
+│       ├── build.sbt
+│       └── run
+├── src
+│   ├── main
+│   │   └── scala
+│   │       ├── todo
+│   │       │   ├── core
+│   │       │   │   ├── Title.scala
+│   │       │   │   ├── Todo.scala
+│   │       │   │   └── TodoId.scala
+│   │       │   ├── render
+│   │       │   │   └── Renderer.scala
+│   │       │   ├── store
+│   │       │   │   ├── Store.scala
+│   │       │   │   └── TodoRecord.scala
+│   │       │   ├── Cli.scala
+│   │       │   ├── Greeting.scala
+│   │       │   └── Main.scala
+│   │       └── .gitkeep
+│   └── test
+│       └── scala
+│           ├── todo
+│           │   ├── core
+│           │   │   ├── TitleSuite.scala
+│           │   │   ├── TodosPropertySuite.scala
+│           │   │   └── TodosSuite.scala
+│           │   ├── render
+│           │   │   └── RendererSuite.scala
+│           │   ├── store
+│           │   │   └── StoreSuite.scala
+│           │   ├── CliSuite.scala
+│           │   └── GreetingSuite.scala
+│           └── .gitkeep
+├── .gitignore
+├── .scalafmt.conf
+├── build.sbt
+├── CLAUDE.md
+├── justfile
+├── README.md
+└── session.jsonl

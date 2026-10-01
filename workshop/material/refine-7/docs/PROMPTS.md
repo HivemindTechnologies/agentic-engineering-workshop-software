@@ -1,0 +1,100 @@
+# Prompts
+
+Append-only, written by `.claude/hooks/log-prompt.sh`. Do not edit past entries.
+
+## 2026-09-28T16:53:12Z · 630192d8
+
+```text
+## implement-1: Implement the SPEC (last: FAIL judge 2026-09-28-18-47-55)
+
+Implement the SPEC one milestone at a time. The implement command accepts any of these:
+
+- /implement @docs/specs/SPEC.v1-todo-list-cli-mvp.md M1
+- /implement v1.M1
+- /implement M1
+- /implement M1, M2
+- /implement M1-M3
+
+```sh
+just prepare implement-1
+just claude
+```
+
+*PROMPT TO TEST*
+```
+/implement M1
+```
+
+*EXPECTED OBSERVATIONS*
+- The changes should be implemented, and the SPEC should flip the status of the milestone to "IMPLEMENTED".
+- The implementation details paragraph should be added to the milestone section.
+- The changes should be committed to the git repository.
+- The changes should not be pushed to the remote repository.
+- You should be asked if the changes can be marked as done.
+- If you say yes, it should create another commit flipping the status of the milestone to "DONE" and all acceptance criteria should be checked.
+```
+
+## 2026-09-28T20:07:20Z · 64af4c06
+
+```text
+## implement-1b: Mark the milestone as done
+
+To complete the workflow mark the milestone as done after your review.
+
+```sh
+just prepare implement-1b
+just claude
+```
+
+*PROMPT TO TEST*
+```
+mark done and commit
+```
+
+*EXPECTED OBSERVATIONS*
+- The milestone should be marked as "DONE"
+- The changes should be committed to the git repository
+```
+
+## 2026-09-28T20:13:54Z · 2f07bf7f
+
+```text
+## implement-2: Implement real function with next two milestones
+
+```sh
+just prepare implement-2
+just claude
+```
+
+*PROMPT TO TEST*
+```
+/implement M2 + M3
+```
+
+*EXPECTED OBSERVATIONS*
+- There is a hello world in the application
+- There is a basic implementation of the create and read todos functionality
+- The resulting application is runnable
+- The generated code contains tests for the new functionality
+```
+
+## 2026-09-28T20:37:32Z · 46b841b3
+
+```text
+## quality-gates-1: Introduce a pre commit hook to run just check
+
+To make sure the code is always in a good state it is advisable to introduce a pre commit hook to run just check.
+
+```sh
+just prepare quality-gates-1
+just claude
+```
+
+*PROMPT TO TEST*
+```
+Add a pre commit hook to run just check on every commit.
+```
+
+*EXPECTED OBSERVATIONS*
+- The pre commit hook is available on the local git repository
+```

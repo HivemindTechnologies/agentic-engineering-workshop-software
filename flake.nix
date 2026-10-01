@@ -22,6 +22,7 @@
           pkgs.just
           pkgs.nono
           pkgs.jq
+          pkgs.yq-go
           pkgs.claude-code
         ];
         # Keep sbt and coursier caches out of $HOME. $PWD is where
@@ -29,6 +30,7 @@
         shellHook = ''
           export COURSIER_CACHE=$PWD/.cache/coursier
           export SBT_OPTS="-Dsbt.global.base=$PWD/.cache/sbt"
+          "$PWD/scripts/banner" "develop shell"
         '';
       };
     });

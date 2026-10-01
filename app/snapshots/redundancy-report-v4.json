@@ -1,0 +1,11 @@
+{
+  "tool": "pmd-cpd",
+  "version": "7.28.0",
+  "root": "src",
+  "minimum_tokens": 50,
+  "finding_count": 2,
+  "findings": [
+    {"tokens": 52, "lines": 5, "occurrences": 3, "locations": [{"file": "main/scala/todo/Cli.scala", "start": 184, "end": 188}, {"file": "main/scala/todo/Cli.scala", "start": 207, "end": 211}, {"file": "main/scala/todo/Cli.scala", "start": 229, "end": 233}]},
+    {"tokens": 55, "lines": 5, "occurrences": 2, "locations": [{"file": "main/scala/todo/Cli.scala", "start": 184, "end": 188}, {"file": "main/scala/todo/Cli.scala", "start": 229, "end": 233}]}
+  ]
+}

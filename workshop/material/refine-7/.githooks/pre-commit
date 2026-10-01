@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Runs `just check` before every commit — scalafmt, compile with -Werror, tests.
+# Installed via `just install-hooks`.
+set -euo pipefail
+
+just check

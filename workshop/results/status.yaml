@@ -1,0 +1,138 @@
+baseline_wall_seconds: 2070
+lessons:
+  - lesson: refine-1
+    status: "FAIL simulate"
+    stamp: 2026-09-30-00-35-48
+    verdict: pass
+    interactions: 5
+    length: 98991
+    wall_seconds: 29
+    capped: false
+  - lesson: refine-1a
+    status: PASS
+    stamp: 2026-09-30-19-58-24
+    verdict: pass
+    interactions: 6
+    length: 108457
+    wall_seconds: 36
+    capped: false
+  - lesson: refine-2
+    status: PASS
+    stamp: 2026-09-29-02-28-32
+    verdict: pass
+    interactions: 14
+    length: 344699
+    wall_seconds: 138
+    capped: false
+  - lesson: refine-3
+    status: PASS
+    stamp: 2026-09-30-20-12-10
+    verdict: pass
+    interactions: 9
+    length: 191075
+    wall_seconds: 91
+    capped: false
+  - lesson: refine-4
+    status: PASS
+    stamp: 2026-09-29-11-39-09
+    verdict: pass
+    interactions: 9
+    length: 203619
+    wall_seconds: 101
+    capped: false
+  - lesson: refine-5
+    status: PASS
+    stamp: 2026-09-29-02-35-41
+    verdict: pass
+    interactions: 14
+    length: 206505
+    wall_seconds: 86
+    capped: false
+  - lesson: refine-6
+    status: PASS
+    stamp: 2026-09-30-00-00-23
+    verdict: pass
+    interactions: 7
+    length: 159074
+    wall_seconds: 56
+    capped: false
+  - lesson: implement-1
+    status: PASS
+    stamp: 2026-09-30-00-01-44
+    verdict: pass
+    interactions: 21
+    length: 520783
+    wall_seconds: 117
+    capped: false
+  - lesson: implement-1b
+    status: PASS
+    stamp: 2026-09-29-02-43-17
+    verdict: pass
+    interactions: 21
+    length: 556633
+    wall_seconds: 133
+    capped: false
+  - lesson: implement-2
+    status: PASS
+    stamp: 2026-09-29-07-21-14
+    verdict: pass
+    interactions: 61
+    length: 2719229
+    wall_seconds: 530
+    capped: false
+  - lesson: quality-gates-1
+    status: PASS
+    stamp: 2026-09-29-07-30-16
+    verdict: pass
+    interactions: 28
+    length: 899654
+    wall_seconds: 90
+    capped: false
+  - lesson: refine-7
+    status: PASS
+    stamp: 2026-09-29-07-31-59
+    verdict: pass
+    interactions: 12
+    length: 244325
+    wall_seconds: 81
+    capped: false
+  - lesson: quality-gates-2
+    status: PASS
+    stamp: 2026-09-29-02-11-56
+    verdict: pass
+    interactions: 26
+    length: 954730
+    wall_seconds: 176
+    capped: false
+  - lesson: skills-1
+    status: PASS
+    stamp: 2026-09-29-02-17-18
+    verdict: pass
+    interactions: 12
+    length: 212852
+    wall_seconds: 51
+    capped: false
+  - lesson: skills-2
+    status: PASS
+    stamp: 2026-09-29-02-22-07
+    verdict: pass
+    interactions: 7
+    length: 189797
+    wall_seconds: 137
+    capped: false
+  - lesson: quality-gates-3
+    status: PASS
+    stamp: 2026-09-30-23-31-41
+    verdict: pass
+    interactions: 15
+    length: 533152
+    wall_seconds: 107
+    capped: false
+  - lesson: quality-gates-4
+    status: PASS
+    stamp: 2026-09-30-09-12-10
+    verdict: pass
+    interactions: 17
+    length: 485349
+    wall_seconds: 111
+    capped: false

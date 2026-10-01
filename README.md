@@ -1,32 +1,15 @@
-# Agentic Engineering Workshop: Software
+# todo-list-cli
 
-Welcome, and thanks for joining! We look forward to the workshop with you.
-Please complete the setup below beforehand, so we can start right away.
+Workshop harness. The participant's project is not this directory. `just prepare` builds it in `develop/`, and the sandbox can see only that directory.
 
-## Setup
+## Start
 
-We use the package manager **Nix**; `flake.nix` declares all tools.
-Nix stores them in `/nix/store`, separate from your other software.
-They are only on your `PATH` inside the `nix develop` shell.
+```sh
+nix develop           # JDK, sbt, scalafmt, just, nono, Claude Code
+just                  # recipes
+just prepare          # lesson names
+just prepare refine-1 # empty project, then the prompt
+just claude           # Claude Code inside develop/
+```
 
-1. Install Nix. We recommend the Determinate installer (Linux and macOS, flakes enabled):
-   https://docs.determinate.systems/determinate-nix/
-   If you use the official installer (https://nixos.org/download/), enable flakes:
-   `mkdir -p ~/.config/nix && echo "experimental-features = nix-command flakes" >> ~/.config/nix/nix.conf`
-2. In this repo, enter the dev shell: `nix develop`
-   This opens a shell with the tools from `flake.nix`. `exit` leaves it.
-3. Check it works: `claude --version && sbt --version`
-
-To uninstall Nix later, follow https://manual.determinate.systems/installation/uninstall.html (Determinate installer) or https://nix.dev/manual/nix/stable/installation/uninstall.html (official installer).
-
-### Without Nix
-
-Alternatively, install these yourself:
-- git: https://git-scm.com/downloads
-- JDK 21 (e.g. Temurin): https://adoptium.net/temurin/releases/?version=21
-- sbt: https://www.scala-sbt.org/download/
-- scalafmt: https://scalameta.org/scalafmt/docs/installation.html
-- just: https://just.systems/man/en/installation.html
-- jq: https://jqlang.org/download/
-- nono sandbox: https://nono.sh/docs/quickstart
-- Claude Code: https://claude.com/product/claude-code (needs an account)
+`just sandbox` is the same boundary with a plain shell. The design is in `docs/specs/SPEC.v1-onion-layering.md`. The prompts are in `workshop/JOURNEY.md`.

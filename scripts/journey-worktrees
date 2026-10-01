@@ -1,0 +1,204 @@
+#!/usr/bin/env python3
+"""Build or refresh *WORKTREE* summary sections in workshop/JOURNEY.md.
+
+Each lesson gets a two-layer tree of the prepared material view: 00-base
+overlayed with every lesson delta up to and including that lesson (same order
+as `just prepare`), then summarized so directories show only immediate children.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+JOURNEY = ROOT / "workshop" / "JOURNEY.md"
+MATERIAL = ROOT / "workshop" / "material"
+ORDER = ROOT / "scripts" / "lesson-order"
+
+SKIP_DIR_NAMES = {
+    "target",
+    "project",
+    ".bloop",
+    ".metals",
+    ".bsp",
+    ".git",
+    ".direnv",
+    ".claude-home",
+    "__pycache__",
+}
+# Keep project/build.properties visible via root files; skip deep sbt target trees only.
+SKIP_DIR_NAMES.discard("project")
+
+WORKTREE_LABEL = "*WORKTREE*"
+PROMPT_LABEL = "*PROMPT TO TEST*"
+LESSON_HEAD = re.compile(r"^# ([a-z0-9-]+):")
+
+
+def lesson_order(journey: Path) -> list[str]:
+    out = subprocess.check_output([str(ORDER), str(journey)], text=True)
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+def apply_delta(dest: Path, lesson: str) -> None:
+    """Mirror justfile _delta-<lesson> copies where material exists."""
+    src = MATERIAL / lesson
+    if not src.is_dir():
+        return
+    # skills-2 removes command files in justfile; for tree summary we only copy material.
+    if lesson == "skills-2":
+        for cmd in ("refine.md", "implement.md"):
+            p = dest / ".claude" / "commands" / cmd
+            if p.exists():
+                p.unlink()
+    shutil.copytree(src, dest, dirs_exist_ok=True)
+
+
+def prepared_tree_root(lesson: str, order: list[str], scratch: Path) -> Path:
+    work = scratch / lesson
+    if work.exists():
+        shutil.rmtree(work)
+    work.mkdir(parents=True)
+    base = MATERIAL / "00-base"
+    if base.is_dir():
+        shutil.copytree(base, work, dirs_exist_ok=True)
+    for id_ in order:
+        apply_delta(work, id_)
+        if id_ == lesson:
+            break
+    return work
+
+
+def summarize(root: Path, max_depth: int = 2) -> list[str]:
+    """Return tree lines; depth 1 = root children, depth 2 = grandchildren only."""
+    lines = ["."]
+
+    def skip_dir(name: str) -> bool:
+        return name in SKIP_DIR_NAMES or name.startswith("target")
+
+    entries = sorted(
+        [p for p in root.iterdir() if p.name not in {".", ".."}],
+        key=lambda p: (not p.is_dir(), p.name.lower()),
+    )
+    # Filter skip at root
+    entries = [p for p in entries if not (p.is_dir() and skip_dir(p.name))]
+
+    for i, path in enumerate(entries):
+        last = i == len(entries) - 1
+        branch = "└── " if last else "├── "
+        suffix = "/" if path.is_dir() else ""
+        lines.append(f"{branch}{path.name}{suffix}")
+        if path.is_dir() and max_depth >= 2:
+            kids = sorted(
+                [
+                    c
+                    for c in path.iterdir()
+                    if not (c.is_dir() and skip_dir(c.name)) and c.name != ".DS_Store"
+                ],
+                key=lambda p: (not p.is_dir(), p.name.lower()),
+            )
+            # Cap noise: at most 12 children listed
+            shown = kids[:12]
+            for j, child in enumerate(shown):
+                last_c = j == len(shown) - 1 and len(kids) <= 12
+                prefix = "    " if last else "│   "
+                cbranch = "└── " if last_c else "├── "
+                csuf = "/" if child.is_dir() else ""
+                lines.append(f"{prefix}{cbranch}{child.name}{csuf}")
+            if len(kids) > 12:
+                prefix = "    " if last else "│   "
+                lines.append(f"{prefix}└── … ({len(kids) - 12} more)")
+    return lines
+
+
+def render_block(tree_lines: list[str]) -> str:
+    body = "\n".join(tree_lines)
+    return f"{WORKTREE_LABEL}\n```\n{body}\n```\n"
+
+
+def split_lessons(text: str) -> list[tuple[str | None, str]]:
+    """Return [(lesson_id|None, section_text)] preserving preamble."""
+    lines = text.splitlines(keepends=True)
+    sections: list[tuple[str | None, list[str]]] = [(None, [])]
+    for line in lines:
+        m = LESSON_HEAD.match(line.rstrip("\n"))
+        if m:
+            sections.append((m.group(1), [line]))
+        else:
+            sections[-1][1].append(line)
+    return [(lid, "".join(body)) for lid, body in sections]
+
+
+def strip_worktree(section: str) -> str:
+    """Remove an existing *WORKTREE* fenced block from a lesson section."""
+    pattern = re.compile(
+        r"\n*\*WORKTREE\*\n```(?:[^\n]*)\n.*?```\n*",
+        re.DOTALL,
+    )
+    return pattern.sub("\n\n", section, count=1)
+
+
+def insert_worktree(section: str, block: str) -> str:
+    section = strip_worktree(section)
+    block = block.rstrip() + "\n"
+    if PROMPT_LABEL in section:
+        # Keep a single blank line before PROMPT.
+        head, _, tail = section.partition(PROMPT_LABEL)
+        head = head.rstrip() + "\n\n"
+        return head + block + "\n" + PROMPT_LABEL + tail
+    return section.rstrip() + "\n\n" + block + "\n"
+
+
+def refresh_journey(journey: Path, order: list[str]) -> str:
+    original = journey.read_text(encoding="utf-8")
+    parts = split_lessons(original)
+    out: list[str] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        scratch = Path(tmp)
+        for lid, body in parts:
+            if lid is None:
+                out.append(body)
+                continue
+            if lid not in order:
+                out.append(strip_worktree(body))
+                continue
+            root = prepared_tree_root(lid, order, scratch)
+            tree = summarize(root)
+            block = render_block(tree)
+            out.append(insert_worktree(body, block))
+    text = "".join(out)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--journey", type=Path, default=JOURNEY)
+    ap.add_argument("--write", action="store_true", help="update the journey file in place")
+    ap.add_argument("--lesson", help="only print the summary tree for one lesson")
+    args = ap.parse_args()
+    order = lesson_order(args.journey)
+    if args.lesson:
+        if args.lesson not in order:
+            print(f"unknown lesson: {args.lesson}", file=sys.stderr)
+            return 1
+        with tempfile.TemporaryDirectory() as tmp:
+            root = prepared_tree_root(args.lesson, order, Path(tmp))
+            print("\n".join(summarize(root)))
+        return 0
+    text = refresh_journey(args.journey, order)
+    if args.write:
+        args.journey.write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

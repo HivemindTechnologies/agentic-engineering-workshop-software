@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Copy/paste (redundancy) gate on PMD CPD. JDK + sbt only (outer.v15.M4a).
+# Usage: check-redundancies [ROOT] [--min-tokens N] [--verbosity quiet|normal|verbose]
+#        [--report FILE] [--allow GLOB]... [--fail-on-findings]
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")/check-redundancies-cpd" && pwd)
+caller=$(pwd)
+
+if [[ -z "${COURSIER_CACHE:-}" ]]; then
+  probe=$here
+  while [[ "$probe" != "/" ]]; do
+    if [[ -d "$probe/.cache" ]] || [[ -f "$probe/flake.nix" ]]; then
+      export COURSIER_CACHE="$probe/.cache/coursier"
+      export SBT_OPTS="${SBT_OPTS:--Dsbt.global.base=$probe/.cache/sbt}"
+      break
+    fi
+    probe=$(dirname "$probe")
+  done
+fi
+
+mkdir -p "$here/target"
+cp_file="$here/target/runtime-classpath.txt"
+need_build=0
+if [[ ! -f "$cp_file" ]] || [[ "$here/build.sbt" -nt "$cp_file" ]] \
+  || [[ -n "$(find "$here/src" -name '*.scala' -newer "$cp_file" -print -quit)" ]]; then
+  need_build=1
+fi
+
+if [[ "$need_build" -eq 1 ]]; then
+  (cd "$here" && sbt -batch compile 'export runtime:fullClasspath' >target/sbt-export.log 2>&1) || {
+    tail -20 "$here/target/sbt-export.log" >&2
+    echo "check-redundancies: build failed" >&2
+    exit 2
+  }
+  awk 'NF { line=$0 } END { print line }' "$here/target/sbt-export.log" >"$cp_file"
+fi
+
+cd "$caller"
+exec java -cp "$(cat "$cp_file")" CheckRedundancies "$@"

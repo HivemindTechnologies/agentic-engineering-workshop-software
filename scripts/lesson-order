@@ -1,0 +1,17 @@
+#!/usr/bin/env -S awk -f
+# Print one lesson id per line from a flat JOURNEY.md.
+# A lesson is a top-level heading: # <slug>: <title>
+# Usage: scripts/lesson-order < JOURNEY.md
+#    or: scripts/lesson-order JOURNEY.md
+BEGIN {
+  if (ARGC >= 2) {
+    # path given as argument
+  }
+}
+/^# [a-z0-9-]+:/ {
+  split($0, parts, ":")
+  # parts[1] is "# slug"
+  sub(/^# /, "", parts[1])
+  print parts[1]
+  next
+}

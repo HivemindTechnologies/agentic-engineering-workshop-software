@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""Print or write a pruned directory tree (v13.M8).
+
+Exclusions match scripts/capture-result-tree: target/, .git/, .claude-home/,
+.bloop/, .metals/, .bsp/ at any depth. Also skips judgements/ under stamps.
+
+Usage:
+  pruned-tree <dir>
+  pruned-tree --write <out-file> <dir>
+  pruned-tree --results <lesson-results-dir> [--stamp <stamp>]
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+EXCLUDE_NAMES = frozenset(
+    {
+        ".git",
+        "target",
+        ".claude-home",
+        ".bloop",
+        ".metals",
+        ".bsp",
+        "judgements",
+    }
+)
+STAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}$")
+
+
+def list_children(directory: Path) -> list[Path]:
+    kids = []
+    for child in sorted(directory.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+        if child.name in EXCLUDE_NAMES:
+            continue
+        kids.append(child)
+    return kids
+
+
+def render_tree(root: Path) -> str:
+    lines = ["."]
+
+    def walk(directory: Path, prefix: str) -> None:
+        children = list_children(directory)
+        for i, child in enumerate(children):
+            last = i == len(children) - 1
+            branch = "└── " if last else "├── "
+            lines.append(f"{prefix}{branch}{child.name}")
+            if child.is_dir():
+                extension = "    " if last else "│   "
+                walk(child, prefix + extension)
+
+    if root.is_dir():
+        walk(root, "")
+    return "\n".join(lines) + "\n"
+
+
+def pick_stamp(results: Path, want: str | None) -> Path:
+    if not results.is_dir():
+        raise SystemExit(f"no results for {results.name}: {results}")
+    cutoff = ""
+    cutoff_path = results / "cutoff"
+    if cutoff_path.is_file():
+        cutoff = cutoff_path.read_text().strip()
+    if want:
+        if not STAMP_RE.match(want):
+            raise SystemExit(f"bad stamp: {want}")
+        stamp = results / want
+        if not stamp.is_dir():
+            raise SystemExit(f"no result tree: {stamp}")
+        if cutoff and want < cutoff:
+            raise SystemExit(f"stamp {want} is before cutoff {cutoff}")
+        return stamp
+    newest = ""
+    for child in results.iterdir():
+        if not child.is_dir() or not STAMP_RE.match(child.name):
+            continue
+        if cutoff and child.name < cutoff:
+            continue
+        if not newest or child.name > newest:
+            newest = child.name
+    if not newest:
+        raise SystemExit(f"no in-range result stamp for {results.name}")
+    return results / newest
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("dir", nargs="?", help="directory to list")
+    parser.add_argument("--write", metavar="FILE", help="write listing to FILE instead of stdout")
+    parser.add_argument("--results", metavar="DIR", help="lesson results dir; pick newest or --stamp")
+    parser.add_argument("--stamp", metavar="STAMP", help="exact stamp under --results")
+    args = parser.parse_args(argv)
+
+    if args.results:
+        if args.dir:
+            print("pass either --results or a directory, not both", file=sys.stderr)
+            return 2
+        root = pick_stamp(Path(args.results), args.stamp)
+    elif args.dir:
+        root = Path(args.dir)
+        if not root.is_dir():
+            print(f"no directory: {root}", file=sys.stderr)
+            return 1
+    else:
+        print("usage: pruned-tree <dir> | pruned-tree --results <dir> [--stamp <stamp>]", file=sys.stderr)
+        return 2
+
+    text = render_tree(root)
+    if args.write:
+        Path(args.write).write_text(text, encoding="utf-8")
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

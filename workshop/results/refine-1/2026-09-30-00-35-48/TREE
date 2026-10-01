@@ -1,0 +1,16 @@
+.
+├── .claude
+│   ├── agents
+│   │   └── participant.md
+│   ├── hooks
+│   │   └── log-prompt.sh
+│   └── settings.json
+├── docs
+│   ├── specs
+│   │   └── SPEC.v1-todo-list-cli-mvp.md
+│   └── PROMPTS.md
+├── .gitignore
+├── CLAUDE.md
+├── justfile
+├── README.md
+└── session.jsonl

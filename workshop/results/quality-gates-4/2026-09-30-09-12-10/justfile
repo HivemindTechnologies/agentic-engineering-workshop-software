@@ -1,0 +1,54 @@
+default:
+    @just --list
+
+build:
+    sbt compile
+
+test:
+    sbt test
+
+fmt:
+    sbt scalafmtAll
+
+# point git at the versioned hooks so `just check` runs before every commit
+install-hooks:
+    git config core.hooksPath .githooks
+    chmod +x .githooks/pre-commit
+
+# scalafmt, compile with -Werror, tests
+@check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    log=$(mktemp)
+    trap 'rm -f "$log"' EXIT
+    sbt -batch scalafmtCheckAll test | tee "$log"
+    echo
+    scala_files=$(find src -name '*.scala')
+    lines=0
+    [ -z "$scala_files" ] || lines=$(cat $scala_files | grep -c .)
+    echo "scala   : $lines lines in $(echo "$scala_files" | grep -c . || true) files"
+    grep '^\[info\] Passed: ' "$log" | sed 's/^\[info\] Passed: /tests   : /' || echo "tests   : 0"
+    echo "warnings: $(grep -c '^\[warn\]' "$log" || true)"
+
+# Deterministic spec structure gate (Scala checker; v13.M12).
+spec-check:
+    ./scripts/spec-check-scala/run docs/specs
+
+# Copy/paste redundancy gate (outer.v15.M4). Accepts verbosity=quiet|normal|verbose,
+# report=PATH, and any tool flag, e.g. `just check-redundancies --fail-on-findings`.
+# The tool is PMD CPD (pinned in scripts/check-redundancies-cpd/build.sbt); silence a region with `// CPD-OFF` ... `// CPD-ON`.
+[positional-arguments]
+check-redundancies *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    verbosity=quiet
+    report=snapshots/redundancy-report.json
+    rest=()
+    for a in "$@"; do
+      case "$a" in
+        verbosity=*) verbosity="${a#verbosity=}" ;;
+        report=*) report="${a#report=}" ;;
+        *) rest+=("$a") ;;
+      esac
+    done
+    exec ./scripts/check-redundancies src --verbosity "$verbosity" --report "$report" ${rest[@]+"${rest[@]}"}

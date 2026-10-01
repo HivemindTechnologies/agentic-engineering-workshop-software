@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Scaffold lessons/<id>.md from lessons/_template.md.
+#   new-lesson <id> "<Name>" ["<Full Title>"]
+#   make new-lesson id=<id> name="<Name>" title="<Full Title>"
+# <id> is <word><number>, e.g. harness1, context2. <Name> is the slide label;
+# <Full Title> (optional, defaults to <Name>) is the lead-in sentence.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+ID="${1:-${id:-}}"
+NAME="${2:-${name:-}}"
+TITLE="${3:-${title:-${NAME:-}}}"
+
+if [[ -z "$ID" || -z "$NAME" ]]; then
+  echo 'usage: new-lesson <id> "<Name>" ["<Full Title>"]   (<id> = word + number)' >&2
+  exit 2
+fi
+if [[ ! "$ID" =~ ^[a-z]+[0-9]+$ ]]; then
+  echo "id must be lowercase word + number: $ID" >&2
+  exit 2
+fi
+
+NUM="${ID##*[a-z]}"
+DEST="lessons/$ID.md"
+if [[ -e "$DEST" ]]; then
+  echo "$DEST already exists" >&2
+  exit 1
+fi
+
+sed -e "s/{{ID}}/$ID/g" -e "s/{{NAME}}/$NAME/g" -e "s/{{TITLE}}/$TITLE/g" -e "s/{{NUM}}/$NUM/g" \
+  lessons/_template.md > "$DEST"
+
+echo "created presentation/$DEST"
+echo "next: add a line for '$ID' to the <!-- lessons --> list in a deck-*.md spine"

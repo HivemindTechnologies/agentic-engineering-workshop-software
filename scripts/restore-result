@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Replace develop/ with a result stamp tree (v13.M6).
+# Usage: restore-result <results-lesson-dir> <develop-dir> <prepare-record> [stamp]
+set -euo pipefail
+results="${1:?results-lesson-dir}"
+work="${2:?develop-dir}"
+record="${3:?prepare-record}"
+want_stamp="${4:-}"
+lesson="$(basename "$results")"
+
+stamp_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}$'
+cutoff=""
+if [[ -f "$results/cutoff" ]]; then
+  cutoff=$(tr -d '[:space:]' < "$results/cutoff")
+fi
+
+pick=""
+if [[ -n "$want_stamp" ]]; then
+  [[ "$want_stamp" =~ $stamp_re ]] || { echo "bad stamp: $want_stamp" >&2; exit 1; }
+  [[ -d "$results/$want_stamp" ]] || { echo "no result tree: $results/$want_stamp" >&2; exit 1; }
+  if [[ -n "$cutoff" && "$want_stamp" < "$cutoff" ]]; then
+    echo "stamp $want_stamp is before cutoff $cutoff" >&2
+    exit 1
+  fi
+  pick=$want_stamp
+else
+  newest=""
+  for dir in "$results"/*/; do
+    [[ -d "$dir" ]] || continue
+    name=$(basename "$dir")
+    [[ "$name" =~ $stamp_re ]] || continue
+    if [[ -n "$cutoff" && "$name" < "$cutoff" ]]; then
+      continue
+    fi
+    if [[ -z "$newest" || "$name" > "$newest" ]]; then
+      newest=$name
+    fi
+  done
+  [[ -n "$newest" ]] || { echo "no in-range result stamp for $lesson" >&2; exit 1; }
+  pick=$newest
+fi
+
+src="$results/$pick"
+rm -rf "$work"
+mkdir -p "$work"
+# Copy stamp into develop; skip session.jsonl and judgements noise if any leaked.
+rsync -a \
+  --exclude 'session.jsonl' \
+  --exclude 'judgements/' \
+  "$src"/ "$work"/
+printf '%s\n' "$lesson" > "$record"
+echo "restored $lesson from $pick -> $work"

@@ -1,0 +1,21 @@
+{
+  "name": "agentic-engineering-workshop-presentation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "HIVEMIND agentic engineering workshop deck (reveal-md).",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "present": "./.bin/present",
+    "build": "./.bin/build-deck",
+    "html": "./.bin/export-html",
+    "pdf": "./.bin/export-pdf",
+    "check": "./.bin/check"
+  },
+  "devDependencies": {
+    "decktape": "3.16.1",
+    "reveal-md": "6.1.4"
+  }
+}

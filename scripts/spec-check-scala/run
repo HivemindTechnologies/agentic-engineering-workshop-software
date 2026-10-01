@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+# Scala semantic clone of scripts/spec-check (v13.M9–M10). Uses jdk + sbt only.
+set -euo pipefail
+if [[ $# -ne 1 ]]; then
+  exit 1
+fi
+
+user_path=$1
+here=$(cd "$(dirname "$0")" && pwd)
+
+if [[ -e "$user_path" ]]; then
+  if [[ -d "$user_path" ]]; then
+    spec=$(cd "$user_path" && pwd)
+  else
+    spec=$(cd "$(dirname "$user_path")" && pwd)/$(basename "$user_path")
+  fi
+else
+  spec=$user_path
+fi
+
+cd "$here"
+
+if [[ -z "${COURSIER_CACHE:-}" ]]; then
+  probe=$here
+  while [[ "$probe" != "/" ]]; do
+    if [[ -d "$probe/.cache" ]] || [[ -f "$probe/flake.nix" ]]; then
+      export COURSIER_CACHE="${COURSIER_CACHE:-$probe/.cache/coursier}"
+      export SBT_OPTS="${SBT_OPTS:--Dsbt.global.base=$probe/.cache/sbt}"
+      break
+    fi
+    probe=$(dirname "$probe")
+  done
+fi
+
+mkdir -p target
+cp_file=target/runtime-classpath.txt
+classes=""
+for candidate in target/scala-*/classes; do
+  if [[ -d "$candidate" ]]; then
+    classes=$candidate
+    break
+  fi
+done
+
+need_build=0
+if [[ -z "$classes" || ! -f "$cp_file" ]]; then
+  need_build=1
+elif [[ src/main/scala/SpecCheck.scala -nt "$cp_file" ]]; then
+  need_build=1
+elif [[ build.sbt -nt "$cp_file" ]]; then
+  need_build=1
+fi
+
+if [[ "$need_build" -eq 1 ]]; then
+  sbt -batch compile 'export runtime:fullClasspath' >target/sbt-export.log
+  classes=""
+  for candidate in target/scala-*/classes; do
+    if [[ -d "$candidate" ]]; then
+      classes=$candidate
+      break
+    fi
+  done
+  if [[ -z "$classes" ]]; then
+    echo "spec-check-scala: compile produced no classes" >&2
+    exit 1
+  fi
+  awk 'NF { line=$0 } END { print line }' target/sbt-export.log >"$cp_file"
+fi
+
+cp=$(cat "$cp_file")
+set +e
+err=$(java -cp "$cp" SpecCheck "$spec" 2>&1 >/dev/null)
+status=$?
+set -e
+if [[ "$status" -eq 0 ]]; then
+  exit 0
+fi
+if [[ -n "$err" ]]; then
+  # Rewrite absolute paths back to the caller-facing path for files and dirs.
+  if [[ -d "$spec" ]]; then
+    echo "${err//$spec/$user_path}" >&2
+  else
+    echo "${err//$spec/$user_path}" >&2
+  fi
+fi
+exit "$status"

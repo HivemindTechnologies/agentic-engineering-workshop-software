@@ -1,0 +1,3 @@
+lesson: skills-1
+require: .claude/skills/<name>/SKILL.md
+why: a flat .claude/skills/<name>.md is not auto-discovered as a Claude Code skill; a real run produced that shape once already

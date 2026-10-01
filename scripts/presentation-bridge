@@ -1,0 +1,442 @@
+#!/usr/bin/env python3
+"""Generate lesson-backed Steckbrief exercises for the reveal-md deck (outer.v17.M2a–M2b).
+
+Every deck unit stays an *exercise* (`presentation/lessons/<id>.md`, id = word+digits).
+Some exercises are *lesson-backed*: bound to a sandbox journey lesson id from
+`workshop/JOURNEY.md`. The Steckbrief template is `presentation/bridge/steckbrief.md`.
+
+Bindings live in `presentation/bridge/bindings.yaml`:
+
+  - exercise: refine1
+    lesson: refine-1
+    name: Refine
+    lead: optional director note (kept in bindings only; never rendered)
+
+Hand edits between `<!-- hand:begin -->` and `<!-- hand:end -->` survive regeneration
+unless `--overwrite` is passed.
+
+`presentation/.bin/build-deck` runs this script before assemble (`just present`).
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_BINDINGS = ROOT / "presentation" / "bridge" / "bindings.yaml"
+DEFAULT_JOURNEY = ROOT / "workshop" / "JOURNEY.md"
+DEFAULT_LESSONS = ROOT / "presentation" / "lessons"
+DEFAULT_TEMPLATE = ROOT / "presentation" / "bridge" / "steckbrief.md"
+DEFAULT_RESULTS = ROOT / "workshop" / "results"
+
+ID_RE = re.compile(r"^(?:[a-z]+-)*[a-z]+\d+[a-z]?$")
+SECTION = re.compile(
+    r"(?ms)^# ([a-z0-9-]+):[^\n]*\n(.*?)(?=^# [a-z0-9-]+:|\Z)"
+)
+BINDING_KEY = re.compile(r"^([A-Za-z0-9_]+):\s*(.*)$")
+HAND_REGION = re.compile(
+    r"<!-- hand:begin -->.*?<!-- hand:end -->",
+    re.DOTALL,
+)
+SHOWCASE_REGION = re.compile(
+    r"<!-- showcase:begin -->\s*(.*?)\s*<!-- showcase:end -->",
+    re.DOTALL,
+)
+FENCE = re.compile(r"```(?:\w+)?\n(.*?)```", re.DOTALL)
+
+
+def load_bindings(path: Path) -> list[dict]:
+    """Load a tiny YAML list of {exercise, lesson, name?} maps without PyYAML."""
+    if not path.is_file():
+        return []
+    lines = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.split("#", 1)[0].rstrip()
+        if line.strip():
+            lines.append(line)
+    if not lines or lines == ["[]"]:
+        return []
+    bindings: list[dict] = []
+    current: dict | None = None
+    for line in lines:
+        if line.lstrip().startswith("- "):
+            if current:
+                bindings.append(current)
+            current = {}
+            rest = line.lstrip()[2:].strip()
+            if rest:
+                key, _, value = rest.partition(":")
+                current[key.strip()] = value.strip().strip("'\"")
+            continue
+        if current is None:
+            raise SystemExit(f"{path}: expected a YAML list of bindings")
+        m = BINDING_KEY.match(line.strip())
+        if not m:
+            raise SystemExit(f"{path}: bad line {line!r}")
+        current[m.group(1)] = m.group(2).strip().strip("'\"")
+    if current:
+        bindings.append(current)
+    return bindings
+
+
+def lesson_section(journey_text: str, lesson_id: str) -> tuple[str, str]:
+    for match in SECTION.finditer(journey_text):
+        if match.group(1) == lesson_id:
+            heading = match.group(0).splitlines()[0]
+            body = match.group(2).strip()
+            return heading, body
+    raise SystemExit(f"journey lesson not found: {lesson_id}")
+
+
+def journey_title(heading: str) -> str:
+    """Title from `# id: Title (last: …)` — the part JOURNEY ships per lesson."""
+    match = re.match(
+        r"^#\s+[a-z0-9-]+:\s*(.+?)(?:\s*\(last:\s*.+\))?\s*$",
+        heading.strip(),
+    )
+    if match:
+        return match.group(1).strip()
+    return heading.lstrip("# ").strip()
+
+
+def intro_paragraph(body: str) -> str:
+    """First prose paragraph only — never prepare fences, measures, or labels."""
+    cut = len(body)
+    for marker in ("*WORKTREE*", "*PROMPT TO TEST*", "*EXPECTED OBSERVATIONS*", "```"):
+        at = body.find(marker)
+        if at >= 0:
+            cut = min(cut, at)
+    head = body[:cut]
+    lines = []
+    for line in head.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            if lines:
+                break
+            continue
+        if stripped.startswith("*") or stripped.startswith("[") or stripped.startswith("<!--"):
+            if lines:
+                break
+            continue
+        if stripped.startswith("Minimum Runtime") or stripped.startswith("Last Token"):
+            continue
+        # Observation / bullet lines are not intro prose.
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            if lines:
+                break
+            continue
+        lines.append(stripped)
+    if not lines:
+        return ""
+    return " ".join(lines)
+
+
+def extract_labeled_fence(body: str, label: str) -> str:
+    """Return the fenced block that follows a *LABEL* line, or empty."""
+    pattern = re.compile(
+        rf"(?ms)^\*{re.escape(label)}\*\s*\n```(?:\w+)?\n(.*?)```"
+    )
+    match = pattern.search(body)
+    return match.group(1).rstrip() if match else ""
+
+
+def extract_observations(body: str) -> str:
+    match = re.search(
+        r"(?ms)^\*EXPECTED OBSERVATIONS\*\s*\n(.*?)(?=^\*[A-Z]|\Z)",
+        body,
+    )
+    if not match:
+        return "- (none listed in JOURNEY)"
+    text = match.group(1).strip()
+    return text if text else "- (none listed in JOURNEY)"
+
+
+def extract_prepare(body: str, lesson_id: str) -> str:
+    """Prefer a ```sh fence before *WORKTREE*; else synthesize just prepare."""
+    worktree_at = body.find("*WORKTREE*")
+    head = body if worktree_at < 0 else body[:worktree_at]
+    for match in FENCE.finditer(head):
+        block = match.group(1).rstrip()
+        if "just prepare" in block or block.strip().startswith("just "):
+            return f"```sh\n{block}\n```"
+    return f"```sh\njust prepare {lesson_id}\njust claude\n```"
+
+
+def extract_measures(heading: str, body: str) -> str:
+    lines = []
+    prefix = body.split("*WORKTREE*")[0] if "*WORKTREE*" in body else body
+    for line in prefix.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Minimum Runtime:"):
+            lines.append(f"- {stripped}")
+        elif stripped.startswith("Last Token Usage:"):
+            lines.append(f"- {stripped}")
+        else:
+            link = re.match(r"^\[([^\]]+)\]\(([^)]+)\)\s*$", stripped)
+            if link:
+                # Show the path in plain text — participants should not need to hover.
+                lines.append(f"- {link.group(1)}: `{link.group(2)}`")
+    if "last:" in heading.lower() and not any("Runtime" in item for item in lines):
+        mark = heading.split("(last:", 1)[-1].rstrip(")")
+        if mark and mark != heading:
+            lines.insert(0, f"- Last mark:{mark}")
+    if not lines:
+        return "_No runtime / token measures on this JOURNEY heading yet._"
+    return "**Last run**\n\n" + "\n".join(lines)
+
+
+def wrap_prompt_text(text: str, width: int = 72) -> str:
+    """Soft-wrap long prompt lines so the fence matches refine1 slide style.
+
+    Applies per line so multi-paragraph prompts (e.g. refine-1a) still wrap
+    each long paragraph instead of staying one horizontal scroll.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        if not line.strip() or len(line) <= width:
+            out.append(line)
+            continue
+        words = line.split()
+        current = ""
+        for word in words:
+            candidate = word if not current else f"{current} {word}"
+            if current and len(candidate) > width:
+                out.append(current)
+                current = word
+            else:
+                current = candidate
+        if current:
+            out.append(current)
+    return "\n".join(out)
+
+
+# Combined prompt+obs slide budget (wrapped prompt lines + observation lines).
+# Over either cap → split into two verticals so both stay fully readable.
+COMBINED_MAX_PROMPT_LINES = 8
+COMBINED_MAX_TOTAL_LINES = 11
+
+
+def _content_line_count(text: str) -> int:
+    return sum(1 for line in text.splitlines() if line.strip())
+
+
+def should_split_prompt_obs(prompt_body: str, observations: str) -> bool:
+    prompt_lines = _content_line_count(prompt_body)
+    obs_lines = _content_line_count(observations)
+    return (
+        prompt_lines > COMBINED_MAX_PROMPT_LINES
+        or prompt_lines + obs_lines > COMBINED_MAX_TOTAL_LINES
+    )
+
+
+def render_prompt_and_obs(name: str, num: str, prompt: str, observations: str) -> str:
+    """One vertical when both fit; otherwise prompt then observations."""
+    prompt_body = prompt
+    if prompt.startswith("```"):
+        # Count inside the fence, not the fences themselves.
+        parts = prompt.split("```")
+        prompt_body = parts[1] if len(parts) > 1 else prompt
+        if prompt_body.startswith("plaintext\n"):
+            prompt_body = prompt_body[len("plaintext\n") :]
+    split = should_split_prompt_obs(prompt_body, observations)
+    if not split:
+        return (
+            f'<!-- .slide: class="steckbrief-prompt-obs" -->\n\n'
+            f"## {name} {num}\n\n"
+            f"*PROMPT TO TEST*\n\n"
+            f"{prompt}\n\n"
+            f"*EXPECTED OBSERVATIONS*\n\n"
+            f"{observations}\n"
+        )
+    return (
+        f'<!-- .slide: class="steckbrief-prompt" -->\n\n'
+        f"## {name} {num}\n\n"
+        f"*PROMPT TO TEST*\n\n"
+        f"{prompt}\n\n"
+        f"----\n\n"
+        f'<!-- .slide: class="steckbrief-obs" -->\n\n'
+        f"## {name} {num}\n\n"
+        f"*EXPECTED OBSERVATIONS*\n\n"
+        f"{observations}\n"
+    )
+
+
+def read_hand_region(path: Path) -> str | None:
+    if not path.is_file():
+        return None
+    match = HAND_REGION.search(path.read_text(encoding="utf-8"))
+    return match.group(0) if match else None
+
+
+def render_steckbrief(
+    template: str,
+    *,
+    exercise_id: str,
+    name: str,
+    lesson_id: str,
+    heading: str,
+    body: str,
+    hand_region: str | None = None,
+) -> str:
+    num = re.search(r"\d+[a-z]?$", exercise_id).group(0)
+    # Participant-facing intro comes from JOURNEY.
+    intro = intro_paragraph(body)
+    title = journey_title(heading)
+    worktree = extract_labeled_fence(body, "WORKTREE") or "(no *WORKTREE* in JOURNEY)"
+    prompt_raw = extract_labeled_fence(body, "PROMPT TO TEST") or "(no *PROMPT TO TEST* in JOURNEY)"
+    prompt_raw = wrap_prompt_text(prompt_raw)
+    # Verbatim text — not a programming language; avoid hljs keyword colours on "and"/"check".
+    prompt = f"```plaintext\n{prompt_raw.strip('`').strip()}\n```"
+    if worktree and not worktree.startswith("```") and worktree != "(no *WORKTREE* in JOURNEY)":
+        worktree = f"```plaintext\n{worktree}\n```"
+    elif worktree.startswith("```") and worktree != "(no *WORKTREE* in JOURNEY)":
+        # Re-tag an extracted fence body only; worktree extract is bare content.
+        pass
+    values = {
+        "NAME": name,
+        "NUM": num,
+        "LESSON": lesson_id,
+        "TITLE": title,
+        "INTRO_SUFFIX": f" {intro}" if intro else "",
+        "MEASURES": extract_measures(heading, body),
+        "PREPARE": extract_prepare(body, lesson_id),
+        "WORKTREE": worktree,
+        "PROMPT_AND_OBS": render_prompt_and_obs(name, num, prompt, extract_observations(body)),
+    }
+    text = template
+    for key, value in values.items():
+        text = text.replace("{{" + key + "}}", value)
+    if hand_region is not None:
+        text, n = HAND_REGION.subn(hand_region, text, count=1)
+        if n != 1:
+            parts = text.split("\n----\n", 1)
+            if len(parts) == 2:
+                text = parts[0].rstrip() + "\n\n" + hand_region + "\n\n----\n" + parts[1]
+            else:
+                text = text.rstrip() + "\n\n" + hand_region + "\n"
+    if "{{" in text:
+        leftover = sorted(set(re.findall(r"\{\{[A-Z_]+\}\}", text)))
+        raise SystemExit(f"unfilled template placeholders: {', '.join(leftover)}")
+    return text if text.endswith("\n") else text + "\n"
+
+
+def load_showcase(explanation: Path) -> str | None:
+    """Return showcase markdown from EXPLANATION.md, or None if absent."""
+    if not explanation.is_file():
+        return None
+    raw = explanation.read_text(encoding="utf-8")
+    marked = SHOWCASE_REGION.search(raw)
+    body = marked.group(1).strip() if marked else raw.strip()
+    if not body:
+        return None
+    # Demote top-level # headings so they do not fight the exercise H1.
+    # Leave fenced code alone (e.g. tocmd outlines that start with "# SPEC …").
+    lines = []
+    in_fence = False
+    for line in body.splitlines():
+        if line.startswith("```"):
+            in_fence = not in_fence
+            lines.append(line)
+        elif (not in_fence) and line.startswith("# ") and not line.startswith("## "):
+            lines.append("## " + line[2:])
+        else:
+            lines.append(line)
+    body = "\n".join(lines).strip()
+    rel = (
+        explanation.relative_to(ROOT)
+        if explanation.is_relative_to(ROOT)
+        else explanation
+    )
+    # No synthetic "## Showcase" title — EXPLANATION owns each vertical's
+    # single h2 (e.g. "## Results: Run 1 vs Run 2"). Injecting a second
+    # title would double-bracket on one slide (hivemind.js brackets every h2).
+    return (
+        "\n----\n\n"
+        f"<!-- showcase:from {rel.as_posix() if hasattr(rel, 'as_posix') else rel} -->\n\n"
+        f"{body}\n"
+    )
+
+
+def write_binding(
+    binding: dict,
+    journey_text: str,
+    lessons_dir: Path,
+    template: str,
+    overwrite: bool,
+    results_root: Path,
+) -> Path:
+    exercise = binding.get("exercise", "")
+    lesson = binding.get("lesson", "")
+    name = binding.get("name", "Journey")
+    if not ID_RE.match(exercise):
+        raise SystemExit(
+            f"exercise id must be <word>[-<word>]*<digits>[letter]?, got {exercise!r}"
+        )
+    if not lesson:
+        raise SystemExit(f"binding for {exercise!r} missing lesson")
+    heading, body = lesson_section(journey_text, lesson)
+    out = lessons_dir / f"{exercise}.md"
+    hand = None if overwrite else read_hand_region(out)
+    text = render_steckbrief(
+        template,
+        exercise_id=exercise,
+        name=name,
+        lesson_id=lesson,
+        heading=heading,
+        body=body,
+        hand_region=hand,
+    )
+    showcase = load_showcase(results_root / lesson / "EXPLANATION.md")
+    if showcase:
+        text = text.rstrip() + "\n" + showcase
+        if not text.endswith("\n"):
+            text += "\n"
+    out.write_text(text, encoding="utf-8")
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bindings", type=Path, default=DEFAULT_BINDINGS)
+    parser.add_argument("--journey", type=Path, default=DEFAULT_JOURNEY)
+    parser.add_argument("--lessons-dir", type=Path, default=DEFAULT_LESSONS)
+    parser.add_argument("--template", type=Path, default=DEFAULT_TEMPLATE)
+    parser.add_argument("--results", type=Path, default=DEFAULT_RESULTS)
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace hand:begin/hand:end regions instead of preserving them",
+    )
+    args = parser.parse_args(argv)
+
+    bindings = load_bindings(args.bindings)
+    if not bindings:
+        print(f"presentation-bridge: no bindings in {args.bindings}")
+        return 0
+    if not args.journey.is_file():
+        print(f"missing journey: {args.journey}", file=sys.stderr)
+        return 1
+    if not args.template.is_file():
+        print(f"missing Steckbrief template: {args.template}", file=sys.stderr)
+        return 1
+    journey_text = args.journey.read_text(encoding="utf-8")
+    template = args.template.read_text(encoding="utf-8")
+    args.lessons_dir.mkdir(parents=True, exist_ok=True)
+    for binding in bindings:
+        path = write_binding(
+            binding,
+            journey_text,
+            args.lessons_dir,
+            template,
+            overwrite=args.overwrite,
+            results_root=args.results,
+        )
+        print(f"{binding['exercise']} <- {binding['lesson']} ({path})")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

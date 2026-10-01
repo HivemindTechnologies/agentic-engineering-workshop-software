@@ -1,0 +1,30 @@
+.
+├── .claude
+│   ├── agents
+│   │   └── participant.md
+│   ├── commands
+│   │   ├── implement.md
+│   │   └── refine.md
+│   ├── hooks
+│   │   └── log-prompt.sh
+│   └── settings.json
+├── .github
+│   └── workflows
+│       └── ci.yml
+├── docs
+│   ├── rules
+│   │   └── WOW.md
+│   ├── specs
+│   │   └── SPEC.v1-todo-list-cli-mvp.md
+│   └── PROMPTS.md
+├── project
+│   ├── project
+│   ├── build.properties
+│   └── plugins.sbt
+├── .gitignore
+├── .scalafmt.conf
+├── build.sbt
+├── CLAUDE.md
+├── justfile
+├── README.md
+└── session.jsonl

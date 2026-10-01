@@ -1,0 +1,190 @@
+#!/usr/bin/env python3
+"""Mechanical pre-check for the software presentation (outer.v17.M3).
+
+Fails on broken spine ids, missing lesson files, broken journey bindings,
+and missing showcase files when a binding sets showcase: required.
+Does not start Claude or a long-lived present server.
+
+  scripts/presentation-check
+  scripts/presentation-check --presentation path --journey path --bindings path
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+BRIDGE_PATH = ROOT / "scripts" / "presentation-bridge"
+
+import runpy
+
+bridge = runpy.run_path(str(BRIDGE_PATH))
+
+LESSONS_BLOCK_RE = re.compile(r"<!-- lessons\b.*?-->", re.DOTALL)
+LIST_LINE_RE = re.compile(r"^\s*([a-z]+\d+)\s*$")
+ASSET_RE = re.compile(r"""(?:src|href)=["']([^"']+)["']""")
+
+
+def spine_lesson_ids(spine: Path) -> list[str]:
+    text = spine.read_text(encoding="utf-8")
+    block = LESSONS_BLOCK_RE.search(text)
+    if not block:
+        return []
+    ids = []
+    for raw in block.group(0).splitlines():
+        if raw.lstrip().startswith("#"):
+            continue
+        m = LIST_LINE_RE.match(raw)
+        if m:
+            ids.append(m.group(1))
+    return ids
+
+
+def check_spines(presentation: Path, errors: list[str]) -> None:
+    lessons_dir = presentation / "lessons"
+    for spine in sorted(presentation.glob("deck-software-*.md")):
+        for lesson_id in spine_lesson_ids(spine):
+            path = lessons_dir / f"{lesson_id}.md"
+            if not path.is_file():
+                errors.append(f"{spine.name}: missing lessons/{lesson_id}.md")
+
+
+def check_bindings(
+    bindings_path: Path,
+    journey: Path,
+    presentation: Path,
+    results_root: Path,
+    errors: list[str],
+) -> None:
+    if not bindings_path.is_file():
+        return
+    bindings = bridge["load_bindings"](bindings_path)
+    if not journey.is_file():
+        errors.append(f"missing journey: {journey}")
+        return
+    journey_text = journey.read_text(encoding="utf-8")
+    lessons_dir = presentation / "lessons"
+    for binding in bindings:
+        exercise = binding.get("exercise", "")
+        lesson = binding.get("lesson", "")
+        if not exercise or not lesson:
+            errors.append(f"binding incomplete: {binding!r}")
+            continue
+        try:
+            bridge["lesson_section"](journey_text, lesson)
+        except SystemExit as exc:
+            errors.append(str(exc))
+        lesson_md = lessons_dir / f"{exercise}.md"
+        if not lesson_md.is_file():
+            errors.append(f"binding {exercise}: missing lessons/{exercise}.md (run bridge)")
+        else:
+            body = lesson_md.read_text(encoding="utf-8")
+            if f"<!-- backing-lesson: {lesson} -->" not in body:
+                errors.append(
+                    f"binding {exercise}: lessons/{exercise}.md missing backing-lesson {lesson}"
+                )
+        showcase = binding.get("showcase", "").lower()
+        explanation = results_root / lesson / "EXPLANATION.md"
+        if showcase in ("required", "yes", "true") and not explanation.is_file():
+            errors.append(
+                f"binding {exercise}: showcase={showcase} but missing {explanation}"
+            )
+
+
+def check_theme_assets(presentation: Path, errors: list[str]) -> None:
+    """Fail when a relative assets/ path used by spines/lessons is missing."""
+    roots = [presentation / "deck-software-part1.md", presentation / "deck-software-part2.md"]
+    roots.extend(sorted((presentation / "lessons").glob("*.md")))
+    for path in roots:
+        if not path.is_file():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for match in ASSET_RE.finditer(text):
+            rel = match.group(1)
+            if rel.startswith(("http://", "https://", "#", "data:")):
+                continue
+            if not rel.startswith("assets/"):
+                continue
+            target = (presentation / rel).resolve()
+            if not target.is_file():
+                errors.append(f"{path.relative_to(presentation)}: missing asset {rel}")
+
+
+def check_double_slide_headings(presentation: Path, errors: list[str]) -> None:
+    """Fail when a lesson slide has more than one #/## title (hivemind brackets both)."""
+    lessons = presentation / "lessons"
+    if not lessons.is_dir():
+        return
+    script = ROOT / "scripts" / "slide-double-heading"
+    result = subprocess.run(
+        [str(script), str(lessons)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        return
+    detail = (result.stderr or result.stdout or "slide-double-heading failed").strip()
+    errors.append(detail)
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--presentation", type=Path, default=ROOT / "presentation")
+    parser.add_argument("--journey", type=Path, default=ROOT / "workshop" / "JOURNEY.md")
+    parser.add_argument(
+        "--bindings",
+        type=Path,
+        default=ROOT / "presentation" / "bridge" / "bindings.yaml",
+    )
+    parser.add_argument(
+        "--results",
+        type=Path,
+        default=ROOT / "workshop" / "results",
+    )
+    parser.add_argument(
+        "--skip-bridge",
+        action="store_true",
+        help="do not run presentation-bridge before checking",
+    )
+    args = parser.parse_args(argv)
+
+    if not args.skip_bridge:
+        bridge_script = ROOT / "scripts" / "presentation-bridge"
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(bridge_script),
+                "--bindings",
+                str(args.bindings),
+                "--journey",
+                str(args.journey),
+                "--lessons-dir",
+                str(args.presentation / "lessons"),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            print(result.stderr or result.stdout, file=sys.stderr)
+            return 1
+
+    errors: list[str] = []
+    check_spines(args.presentation, errors)
+    check_bindings(args.bindings, args.journey, args.presentation, args.results, errors)
+    check_theme_assets(args.presentation, errors)
+    check_double_slide_headings(args.presentation, errors)
+
+    if errors:
+        print("presentation-check FAILED:")
+        for item in errors:
+            print(f"  - {item}")
+        return 1
+    print("presentation-check ok")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

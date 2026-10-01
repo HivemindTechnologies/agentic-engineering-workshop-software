@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""Neighbor similarity for *EXPECTED OBSERVATIONS* (v13.M5). Same board shape as prompt-distance."""
+import hashlib
+import math
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import journey
+
+DIMENSIONS = 64
+FIELD_WIDTH = 7
+DEFAULT_THRESHOLD = 0.05
+
+
+def section(text, lesson):
+    return journey.section(text, lesson)
+
+
+def observation_text(section_text):
+    lines = section_text.splitlines()
+    try:
+        marker = lines.index("*EXPECTED OBSERVATIONS*")
+    except ValueError:
+        return None
+    bullets = []
+    for line in lines[marker + 1 :]:
+        if line.startswith("- "):
+            bullets.append(line[2:])
+        elif line.strip() == "":
+            continue
+        else:
+            break
+    if not bullets:
+        return None
+    return "\n".join(bullets)
+
+
+def observations(text):
+    found = []
+    for lesson in journey.order_text(text):
+        body = section(text, lesson)
+        if body is None:
+            continue
+        obs = observation_text(body)
+        if obs is None:
+            raise SystemExit(f"no expected observations for {lesson}")
+        found.append((lesson, obs))
+    return found
+
+
+def embed(text):
+    vector = [0.0] * DIMENSIONS
+    for token in re.findall(r"[A-Za-z0-9]+", text.lower()):
+        digest = hashlib.sha256(token.encode()).digest()
+        bucket = int.from_bytes(digest[:2], "big") % DIMENSIONS
+        sign = 1.0 if digest[2] % 2 == 0 else -1.0
+        vector[bucket] += sign
+    return vector
+
+
+def cosine(left, right):
+    if len(left) != len(right):
+        raise SystemExit("embedding length mismatch")
+    dot = sum(x * y for x, y in zip(left, right))
+    left_norm = math.sqrt(sum(x * x for x in left))
+    right_norm = math.sqrt(sum(y * y for y in right))
+    if left_norm == 0 or right_norm == 0:
+        raise SystemExit("zero embedding")
+    return dot / (left_norm * right_norm)
+
+
+def show(value):
+    return f"{value:+.4f}"
+
+
+def show_field(value):
+    text = "absent" if value is None else show(value)
+    return f"{text:>{FIELD_WIDTH}}"
+
+
+def neighbor(index, lessons, vectors, offset):
+    other = index + offset
+    if other < 0 or other >= len(lessons):
+        return None
+    return cosine(vectors[index], vectors[other])
+
+
+def format_line(index, lessons, vectors):
+    previous = show_field(neighbor(index, lessons, vectors, -1))
+    nxt = show_field(neighbor(index, lessons, vectors, 1))
+    return f"{lessons[index]:<12} previous={previous} next={nxt}"
+
+
+def report(pairs, vectors, only):
+    lessons = [lesson for lesson, _obs in pairs]
+    if only:
+        if only not in lessons:
+            raise SystemExit(f"unknown lesson: {only}")
+        return [format_line(lessons.index(only), lessons, vectors)]
+    return [format_line(index, lessons, vectors) for index in range(len(lessons))]
+
+
+def parse_field(text):
+    return None if text == "absent" else float(text)
+
+
+def parse_baseline(path):
+    baseline = {}
+    for line_number, line in enumerate(Path(path).read_text().splitlines(), start=1):
+        if not line.strip():
+            continue
+        match = re.match(r"^(\S+)\s+previous=\s*(\S+)\s+next=\s*(\S+)$", line)
+        if not match:
+            raise SystemExit(f"{path}:{line_number}: bad baseline line")
+        name, previous, nxt = match.groups()
+        baseline[name] = {"previous": parse_field(previous), "next": parse_field(nxt)}
+    return baseline
+
+
+def current_fields(lessons, vectors):
+    current = {}
+    for index, name in enumerate(lessons):
+        current[name] = {
+            "previous": neighbor(index, lessons, vectors, -1),
+            "next": neighbor(index, lessons, vectors, 1),
+        }
+    return current
+
+
+def drift_failures(lessons, vectors, baseline, threshold):
+    current = current_fields(lessons, vectors)
+    failures = []
+    for name, fields in baseline.items():
+        now_fields = current.get(name)
+        for field in ("previous", "next"):
+            base = fields[field]
+            now = None if now_fields is None else now_fields[field]
+            if base is None and now is None:
+                continue
+            if base is None or now is None or abs(now - base) > threshold:
+                failures.append((name, field, base, now))
+    return failures
+
+
+def failure_line(name, field, base, now):
+    return f"{name} {field} baseline={show_field(base).strip()} current={show_field(now).strip()}"
+
+
+def main():
+    journey_path = ""
+    lesson = ""
+    baseline_path = ""
+    threshold = DEFAULT_THRESHOLD
+    args = sys.argv[1:]
+    index = 0
+    while index < len(args):
+        if args[index] == "--lesson":
+            lesson = args[index + 1]
+            index += 2
+        elif args[index] == "--check-baseline":
+            baseline_path = args[index + 1]
+            index += 2
+        elif args[index] == "--threshold":
+            threshold = float(args[index + 1])
+            index += 2
+        elif not journey_path:
+            journey_path = args[index]
+            index += 1
+        else:
+            raise SystemExit(f"unknown argument: {args[index]}")
+    if not journey_path:
+        raise SystemExit(
+            "usage: observation-distance <JOURNEY.md> [--lesson ID] [--check-baseline FILE] [--threshold N]"
+        )
+    text = Path(journey_path).read_text()
+    pairs = observations(text)
+    vectors = [embed(obs) for _lesson, obs in pairs]
+    printed = report(pairs, vectors, lesson)
+    print("\n".join(printed))
+    if baseline_path:
+        if not Path(baseline_path).is_file():
+            raise SystemExit(f"no baseline: {baseline_path}")
+        lessons = [name for name, _obs in pairs]
+        baseline = parse_baseline(baseline_path)
+        failures = drift_failures(lessons, vectors, baseline, threshold)
+        if failures:
+            for name, field, base, now in failures:
+                print(failure_line(name, field, base, now))
+            raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,8 @@
+# Bash command substrings that must not appear in a lesson session.
+# Used by scripts/session-bash-forbid. One pattern per line; # comments allowed.
+# Dress rehearsal: implement-1 spent turns curling Maven metadata for versions.
+maven-metadata.xml
+search.maven.org
+# Dress rehearsal: refine-1/2/5 spent turns rediscovering the tree with find.
+find . -not -path
+find . -path ./.git -prune

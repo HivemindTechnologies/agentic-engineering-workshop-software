@@ -1,0 +1,32 @@
+.cache/
+.direnv/
+__pycache__/
+target/
+project/target/
+project/project/
+
+# Claude home for the outer shell, including `just judge`.
+# Lessons use develop/.claude-home.
+.claude-home/
+
+# Participant project. Created by `just prepare`, its own Git repository.
+develop/
+# Command history of `just sandbox`. Survives a new prepare.
+.sandbox_history
+# Lesson id `develop/` was last prepared to. Outside `develop/`, so a rebuild can keep it.
+.prepare-lesson
+
+# Predecessor distances from `just prompt-distance`. The board on stdout is neighbors only.
+workshop/prompt-distance.txt
+
+# Scala CLI cache when the editor opens a Scala file at this root.
+.scala-build/
+scripts/.scala-build/
+# Local editor settings.
+.vscode/
+
+# reveal-md slide deck under presentation/ (also listed in presentation/.gitignore).
+presentation/node_modules/
+presentation/.build/
+presentation/dist/
+presentation/*.pdf

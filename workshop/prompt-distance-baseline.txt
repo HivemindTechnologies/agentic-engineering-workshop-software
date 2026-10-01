@@ -1,0 +1,17 @@
+refine-1     previous= absent next=+0.8967
+refine-1a    previous=+0.8967 next=+0.8866
+refine-2     previous=+0.8866 next=+0.9875
+refine-3     previous=+0.9875 next=+0.9842
+refine-4     previous=+0.9842 next=+0.9842
+refine-5     previous=+0.9842 next=+0.2555
+refine-6     previous=+0.2555 next=-0.3939
+implement-1  previous=-0.3939 next=+0.0000
+implement-1b previous=+0.0000 next=-0.4714
+implement-2  previous=-0.4714 next=+0.0000
+quality-gates-1 previous=+0.0000 next=+0.1712
+refine-7     previous=+0.1712 next=+0.0000
+quality-gates-2 previous=+0.0000 next=+0.1387
+skills-1     previous=+0.1387 next=+0.3147
+skills-2     previous=+0.3147 next=+0.1631
+quality-gates-3 previous=+0.1631 next=+0.0933
+quality-gates-4 previous=+0.0933 next= absent

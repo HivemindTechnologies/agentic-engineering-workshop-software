@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+import sys
+from pathlib import Path
+
+
+def main():
+    if len(sys.argv) != 4:
+        raise SystemExit("usage: ambiguity-check JOURNEY MATERIAL REGISTRY")
+    journey = Path(sys.argv[1])
+    material = Path(sys.argv[2])
+    registry = Path(sys.argv[3])
+    lessons = lesson_texts(journey.read_text())
+    entries = read_registry(registry)
+    for entry in entries:
+        name = entry["lesson"]
+        if name not in lessons:
+            raise SystemExit(f"{registry}: unknown lesson: {name}")
+        corpus = lessons[name] + "\n" + material_text(material / name)
+        present = entry["text"] in corpus
+        ok = present if entry["kind"] == "require" else not present
+        if not ok:
+            print(f"lesson: {name}", file=sys.stderr)
+            print(f"{entry['kind']}: {entry['text']}", file=sys.stderr)
+            print(f"why: {entry['why']}", file=sys.stderr)
+            raise SystemExit(1)
+
+
+def lesson_texts(text):
+    lines = text.splitlines()
+    found = {}
+    index = 0
+    while index < len(lines):
+        if not lines[index].startswith("# ") or ":" not in lines[index][2:]:
+            index += 1
+            continue
+        name = lines[index][2:].split(":", 1)[0].strip()
+        if not all(ch.isalnum() or ch == "-" for ch in name):
+            index += 1
+            continue
+        end = index + 1
+        while end < len(lines):
+            if lines[end].startswith("# ") and ":" in lines[end][2:]:
+                other = lines[end][2:].split(":", 1)[0].strip()
+                if all(ch.isalnum() or ch == "-" for ch in other):
+                    break
+            end += 1
+        parts = [fenced_prompt(lines[index:end]), observation_bullets(lines[index:end])]
+        found[name] = "\n".join(part for part in parts if part)
+        index = end
+    return found
+
+
+def fenced_prompt(lines):
+    try:
+        marker = lines.index("*PROMPT TO TEST*")
+    except ValueError:
+        return ""
+    opener = None
+    for index in range(marker + 1, len(lines)):
+        if lines[index].startswith("```"):
+            opener = index
+            break
+    if opener is None:
+        return ""
+    for index in range(opener + 1, len(lines)):
+        if lines[index].startswith("```"):
+            return "\n".join(lines[opener + 1 : index])
+    return ""
+
+
+def observation_bullets(lines):
+    try:
+        marker = lines.index("*EXPECTED OBSERVATIONS*")
+    except ValueError:
+        return ""
+    bullets = []
+    for line in lines[marker + 1 :]:
+        if line.startswith("- "):
+            bullets.append(line[2:])
+        elif line.strip() == "":
+            continue
+        else:
+            break
+    return "\n".join(bullets)
+
+
+def material_text(directory):
+    if not directory.is_dir():
+        return ""
+    parts = []
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file():
+            continue
+        try:
+            parts.append(path.read_text())
+        except UnicodeDecodeError:
+            continue
+    return "\n".join(parts)
+
+
+def read_registry(path):
+    blocks = path.read_text().split("\n\n")
+    entries = []
+    line_number = 1
+    for block in blocks:
+        lines = [line for line in block.splitlines() if line != ""]
+        if not lines:
+            line_number += block.count("\n") + 1
+            continue
+        entries.append(parse_entry(path, line_number, lines))
+        line_number += block.count("\n") + 1
+    return entries
+
+
+def parse_entry(path, line_number, lines):
+    if len(lines) != 3 or not lines[0].startswith("lesson: ") or not lines[2].startswith("why: "):
+        raise SystemExit(f"{path}:{line_number}: bad entry")
+    lesson = lines[0][len("lesson: ") :]
+    why = lines[2][len("why: ") :]
+    if lines[1].startswith("require: "):
+        kind = "require"
+        text = lines[1][len("require: ") :]
+    elif lines[1].startswith("forbid: "):
+        kind = "forbid"
+        text = lines[1][len("forbid: ") :]
+    else:
+        raise SystemExit(f"{path}:{line_number}: bad entry")
+    return {"lesson": lesson, "kind": kind, "text": text, "why": why}
+
+
+if __name__ == "__main__":
+    main()

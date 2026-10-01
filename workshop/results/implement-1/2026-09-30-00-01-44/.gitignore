@@ -1,0 +1,12 @@
+target/
+project/target/
+project/project/
+.bsp/
+.bloop/
+.metals/
+.cache/
+.direnv/
+
+# Claude Code home for this lesson. Recreated by the harness.
+.claude-home/
+.claude/settings.local.json

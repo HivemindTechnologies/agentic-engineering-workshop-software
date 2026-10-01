@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Fail when a session.jsonl Bash tool_use command matches a forbid pattern."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+
+def load_forbids(path: Path) -> list[str]:
+    patterns = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        patterns.append(line)
+    return patterns
+
+
+def bash_commands(session: Path) -> list[str]:
+    commands = []
+    for line in session.read_text(encoding="utf-8").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        message = event.get("message")
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for item in content:
+            if not isinstance(item, dict) or item.get("type") != "tool_use":
+                continue
+            if item.get("name") != "Bash":
+                continue
+            payload = item.get("input") or {}
+            command = payload.get("command") or payload.get("cmd") or ""
+            if command:
+                commands.append(command)
+    return commands
+
+
+def first_hit(commands: list[str], patterns: list[str]) -> tuple[str, str] | None:
+    for command in commands:
+        for pattern in patterns:
+            if pattern in command:
+                return pattern, command
+    return None
+
+
+def main() -> None:
+    if len(sys.argv) != 3:
+        print(
+            "usage: session-bash-forbid <forbids.txt> <session.jsonl>",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    forbids = Path(sys.argv[1])
+    session = Path(sys.argv[2])
+    patterns = load_forbids(forbids)
+    hit = first_hit(bash_commands(session), patterns)
+    if hit is None:
+        return
+    pattern, command = hit
+    print(f"forbid: {pattern}", file=sys.stderr)
+    print(f"command: {command[:200]}", file=sys.stderr)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

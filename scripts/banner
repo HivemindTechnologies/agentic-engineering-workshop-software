@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Print the HIVEMIND banner with a shell kind on the subtitle line.
+# Usage: scripts/banner <kind>
+set -euo pipefail
+
+kind="${1-}"
+if [[ -z "$kind" ]]; then
+  echo "usage: scripts/banner <kind>" >&2
+  exit 1
+fi
+
+root="$(cd "$(dirname "$0")/.." && pwd)"
+banner="$root/workshop/banner.txt"
+
+printf '\n'
+sed -n '1,6p' "$banner"
+left="agentic engineering workshop"
+line=$(head -n 1 "$banner")
+width=${#line}
+printf '%s%*s\n' "$left" $((width - ${#left})) "$kind"
+printf '\n'

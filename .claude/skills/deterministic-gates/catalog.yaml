@@ -1,0 +1,580 @@
+# Deterministic-gates recipe registry
+# Heuristics, not laws. Use when you can name a stable control plane.
+# Pedagogy: look → dig → peel → freeze → repeat. Not a generic method.
+version: "0.1"
+thesis: >
+  We do not eliminate non-determinism. We peel it until enough of it is a check.
+  Hard problems stay hard. Slice them so subproblems become inspectable.
+
+entries:
+
+  - id: stable-control-plane
+    name: Stable control plane
+    category: framing
+    summary: >
+      Name “good enough” in terms that do not change run-to-run — schema, invariant,
+      threshold, known-bad corpus, or baseline metric. The generator may wander;
+      the gate must sit still.
+    aliases:
+      - acceptance criteria
+      - eval contract
+      - definition of done
+      - invariant
+      - quality bar
+    not_the_same_as:
+      - term: rubric
+        contrast: A rubric can still be judged stochastically. A control plane is what you can re-check without a new opinion.
+      - term: prompt instruction
+        contrast: Telling the model to be consistent is not a control plane. A control plane lives outside the model.
+    what_it_freezes: The meaning of pass and fail.
+    what_stays_stochastic: How the artifact was produced.
+    typical_first_use: Write one sentence that would still be true after ten different model runs.
+    harvest_after_repeats: A short list of invariants and one baseline number or fixture set.
+    uninstall_when: Never. This is the frame, not a tool you remove.
+    examples:
+      - title: Skill acceptance is not “looks useful”
+        context: A harness skill is supposed to extract structured fields from a messy ticket.
+        how: Freeze “output parses as schema S and required keys are present.” Do not freeze “the judge liked the tone.”
+        outcome: You can fail a run without asking another model whether the skill “did its job.”
+
+  - id: deterministic-shell
+    name: Deterministic shell, probabilistic core
+    category: framing
+    summary: >
+      Code owns the loop — planning validation, routing, retries, pass/fail.
+      The model is invoked only inside bounded slots. Reliability comes from the
+      shell, not from begging the model to be stable.
+    aliases:
+      - harness engineering
+      - blueprint-first / model-second
+      - finite-state agent
+      - deterministic scaffolding
+      - orchestrator owns the loop
+    not_the_same_as:
+      - term: temperature zero
+        contrast: Lower sampling variance is not a shell. The path can still wander.
+      - term: agent framework
+        contrast: A framework can still let the model choose the next tool freely.
+    what_it_freezes: Allowed states, tools per state, retry bounds, and who decides pass/fail.
+    what_stays_stochastic: Content generated inside a legal slot.
+    typical_first_use: Draw the states of one skill run and forbid transitions that are not on the page.
+    harvest_after_repeats: A tiny state graph plus schema checks at each edge.
+    uninstall_when: Never for production paths. You may loosen slots that proved harmless.
+    examples:
+      - title: Skill runner that cannot skip validation
+        context: An agent “finishes” a skill by writing a summary and never calling the checker.
+        how: States LOAD → RUN → VALIDATE → REPORT. VALIDATE is code. No tool call after RUN until VALIDATE returns a typed result.
+        outcome: Skipping the gate is an illegal transition, not a creative shortcut.
+
+  - id: divide-and-conquer-judgment
+    name: Divide and conquer the judgment
+    category: decomposition
+    summary: >
+      Split one fuzzy “is this good?” into a few cheap deterministic checks plus a
+      small remainder that still needs judgment. The non-deterministic surface
+      should shrink, not move.
+    aliases:
+      - problem slicing
+      - eval pyramid
+      - tiered evaluation
+      - QAG-style decomposition
+    not_the_same_as:
+      - term: multi-agent debate
+        contrast: More talkers is not slicing the question. Slicing makes each remaining question smaller.
+    what_it_freezes: The list of sub-checks and which of them are code.
+    what_stays_stochastic: Only the leftover semantic slice.
+    typical_first_use: Take the vague accept criterion and write three questions that a script could answer.
+    harvest_after_repeats: A 2–4 check stack you actually run; delete the rest.
+    uninstall_when: When a sub-check never fires and never teaches — drop it, do not keep slicing forever.
+    examples:
+      - title: “Does the skill work?” becomes three gates
+        context: You cannot score a whole skill run by vibe.
+        how: (1) schema valid, (2) no missing required tools, (3) leftover “did it answer the ticket type.”
+        outcome: Failures 1 and 2 are boring. Judge budget only hits case 3.
+
+  - id: invariant-first
+    name: Invariant first, rubric second
+    category: decomposition
+    summary: >
+      Encode must-never-break rules as code — schema, grep, tests, lint.
+      Leave only residual semantics to a judge or an embedding score.
+    aliases:
+      - code evaluators first
+      - deterministic floor
+      - assertions before G-Eval
+      - fail-fast composition
+    not_the_same_as:
+      - term: LLM-as-judge
+        contrast: The judge is the remainder, not the first gate.
+    what_it_freezes: Hard violations that must never ship.
+    what_stays_stochastic: Soft quality on artifacts that already passed invariants.
+    typical_first_use: List every “must” in the skill or style guide and implement those as scripts.
+    harvest_after_repeats: Invariants that caught real breaks; a thinner rubric for what is left.
+    uninstall_when: You never uninstall invariants. You may uninstall the rubric if invariants cover the pain.
+    examples:
+      - title: Ticket extractor must emit JSON
+        context: Judge was scoring helpfulness on malformed JSON.
+        how: Parse first. If parse fails, skip the judge.
+        outcome: The flake was format drift, not “quality.” The rubric got quieter.
+
+  - id: llm-as-judge
+    name: LLM-as-judge
+    category: ensembles
+    summary: >
+      A second model scores an output against criteria. Useful for open-ended work.
+      It adds another stochastic layer unless the rubric is pinned and treated as a
+      temporary sensor, not as ground truth.
+    aliases:
+      - model-as-judge
+      - G-Eval
+      - critic / evaluator
+      - grader model
+    not_the_same_as:
+      - term: evaluator-optimizer
+        contrast: That pattern is generate-then-critique in a loop. A judge can be a one-shot score with no rewrite.
+      - term: unit test
+        contrast: A judge opinion is not a reproducible assertion.
+    what_it_freezes: The written rubric and the input bundle the judge is allowed to see.
+    what_stays_stochastic: The score itself, unless you add quorum or replace it later.
+    typical_first_use: One detailed rubric, one model, log disagreements with yourself across two runs.
+    harvest_after_repeats: The criterion that flips — that is the next invariant or fixture.
+    uninstall_when: As soon as the flake has a name you can check in code.
+    examples:
+      - title: Skill “did what it should” judge
+        context: You need a first sensor for a new skill with no tests.
+        how: Judge only “required fields present and on-topic.” Run twice. Note which bullet flips.
+        outcome: The flip points at an ambiguous bullet, not at a bad skill.
+
+  - id: quorum-panel
+    name: Quorum / majority panel
+    category: ensembles
+    summary: >
+      Run the same check N times — same model or diverse models — and take majority
+      or a threshold. Reduces visible flake. Does not fix correlated errors; a panel
+      of many models often behaves like about two independent votes.
+    aliases:
+      - consensus judge
+      - majority vote
+      - committee
+      - multi-judge panel
+    not_the_same_as:
+      - term: multi-agent debate
+        contrast: Debate changes answers by talking. Quorum only aggregates repeated judgments.
+      - term: independent voters
+        contrast: LLM judges share training and mistakes. Condorcet assumptions do not hold.
+    what_it_freezes: N, the aggregation rule, and the rubric.
+    what_stays_stochastic: Shared blind spots across judges.
+    typical_first_use: N=3 on one flaky criterion only, not on the whole suite.
+    harvest_after_repeats: Items where the panel splits — those are ambiguous fixtures.
+    uninstall_when: Split rate collapses after you rewrote the criterion or added a fixture.
+    examples:
+      - title: Three judges on skill acceptance
+        context: Single judge flips pass/fail on the same transcript.
+        how: Same rubric, three runs, pass if ≥2 agree.
+        outcome: CI stops bouncing. The remaining splits become the known-ambiguity list.
+
+  - id: quorum-then-uninstall
+    name: Quorum as scaffolding, then uninstall
+    category: ensembles
+    summary: >
+      Use repeats only to find why a check is flaky — ambiguous criterion, missing
+      example, format drift. Encode that cause as a deterministic check and drop
+      the panel when it is no longer needed.
+    aliases:
+      - scaffolding metric
+      - temporary ensemble
+      - sensor then ratchet
+    not_the_same_as:
+      - term: always-on consensus
+        contrast: Leaving a panel in CI forever is a cost and a correlated-error trap, not a finished gate.
+    what_it_freezes: The cause you named, as code or a fixture.
+    what_stays_stochastic: Nothing from this layer once uninstalled.
+    typical_first_use: After a week of quorum logs, group the disagreements.
+    harvest_after_repeats: One invariant or one fixture per disagreement cluster.
+    uninstall_when: The panel agrees almost always because the real check moved into code.
+    examples:
+      - title: Flake was “optional field vs missing field”
+        context: Judges argued whether an empty note field was a failure.
+        how: Schema marks notes optional. Quorum removed from that criterion.
+        outcome: Same skill, cheaper gate, no weekly judge bill.
+
+  - id: escalate-on-disagreement
+    name: Escalate on disagreement / low confidence
+    category: ensembles
+    summary: >
+      Cheap check first. Call a stronger judge or a human only when votes split or
+      confidence is below a bar. Spend model quality where the cheap layer is unsure.
+    aliases:
+      - selective evaluation
+      - cascaded judges
+      - trust or escalate
+      - abstention policy
+    not_the_same_as:
+      - term: always use the best model
+        contrast: Best-model-on-every-row is not escalation. Escalation is conditional.
+    what_it_freezes: The confidence/split threshold and the cheap layer.
+    what_stays_stochastic: The rare escalated cases.
+    typical_first_use: Route 100% through schema + weak judge; escalate only on split.
+    harvest_after_repeats: Escalation traces become fixtures or new invariants.
+    uninstall_when: Escalation rate is near zero, or humans never override the cheap layer.
+    examples:
+      - title: Skill CI budget
+        context: You cannot run Opus on every skill eval.
+        how: Haiku grades; if score in the middle band or two Haikus disagree, one Opus call.
+        outcome: Most runs stay cheap. Hard cases get the expensive eyes.
+
+  - id: similarity-as-signal
+    name: Similarity search as a signal, not a verdict
+    category: similarity
+    summary: >
+      Embeddings cluster paraphrases, style variants, and near-duplicate mistakes.
+      Raw clusters are noisy. Use them to discover structure, not to pass or fail
+      a run by cosine score alone.
+    aliases:
+      - embedding similarity
+      - semantic similarity
+      - clustering
+      - near-duplicate detection
+    not_the_same_as:
+      - term: gold-answer match
+        contrast: A similarity threshold is not “correct.” It is “close to something you already saw.”
+      - term: RAG retrieval
+        contrast: Retrieval finds context for generation. This recipe finds structure in outputs or mistakes.
+    what_it_freezes: Embedding model, distance function, and that clusters are review queues.
+    what_stays_stochastic: Cluster membership near the threshold; the generator’s wording.
+    typical_first_use: Embed the last N skill failures or UI strings and look at 3–5 tight clusters only.
+    harvest_after_repeats: Named clusters that were real bugs or real style, promoted to fixtures.
+    uninstall_when: You are using raw cosine as a CI gate with no fixture list — stop that, keep clustering as a probe.
+    examples:
+      - title: Ambiguous skill errors look “different”
+        context: Failure messages vary but mean “customer id vs account id.”
+        how: Embed error strings. One tight cluster is the same mix-up.
+        outcome: You stop treating each wording as a new bug.
+
+  - id: known-ambiguity-corpus
+    name: Known-ambiguity corpus
+    category: similarity
+    summary: >
+      When you find a real ambiguity or failure, freeze the example like a bug
+      fixture. Future runs must not reintroduce that cluster. A regression test
+      for meaning.
+    aliases:
+      - semantic regression
+      - golden failures
+      - eval dataset / fixtures
+      - known-bug corpus
+    not_the_same_as:
+      - term: prompt example
+        contrast: Few-shot examples teach the model. Fixtures test whether the failure came back.
+    what_it_freezes: The frozen inputs and the expected cluster or verdict.
+    what_stays_stochastic: New failure modes you have not seen yet.
+    typical_first_use: Add the first disagreement you actually understood, not fifty noisy neighbors.
+    harvest_after_repeats: A small, labeled set you replay on every skill change.
+    uninstall_when: Never uninstall the corpus. You may retire fixtures that the invariant now covers.
+    examples:
+      - title: Skill mixes ticket types
+        context: Support-skill run treats a billing ticket as a password reset, with new wording each time.
+        how: Save three transcripts + label `must-not-classify-as-reset`. Replay on every skill edit.
+        outcome: New paraphrases still hit the fixture if they land in that cluster or fail the label check.
+
+  - id: cluster-allow-deny
+    name: Allowlist / denylist of clusters
+    category: similarity
+    summary: >
+      Same detector, two policies. Near-duplicates can be forbidden or required
+      (shared config, shared design tokens). Flip the predicate; keep the tool.
+    aliases:
+      - allowlist / denylist
+      - positive and negative prototypes
+      - dual-use similarity
+    not_the_same_as:
+      - term: DRY at all costs
+        contrast: Some similarity is the product. Required similarity is a feature, not a smell.
+    what_it_freezes: Which prototype clusters are required vs forbidden.
+    what_stays_stochastic: Items that match no prototype yet.
+    typical_first_use: Pick one “must look like this” family and one “must not look like that” family.
+    harvest_after_repeats: Prototype examples checked into the registry.
+    uninstall_when: A required cluster is now a shared module or token file — check the module, not cosine.
+    examples:
+      - title: Service config should stay familiar
+        context: Copy-paste detector wanted to “fix” twelve similar app configs.
+        how: Those files are an allowlisted cluster. New services must stay near that prototype.
+        outcome: Same tool that forbids random clones now requires house-style clones.
+
+  - id: extract-then-compare
+    name: Structural extract-then-compare
+    category: similarity
+    summary: >
+      Do not embed whole files. Parse AST, CSS, HTML attributes, or config keys,
+      then compare the extracted strings. The gate is about the field you care
+      about, not about prose noise.
+    aliases:
+      - feature extraction
+      - AST mining
+      - attribute harvest
+      - structured similarity
+    not_the_same_as:
+      - term: whole-file embedding
+        contrast: File-level cosine mixes comments, order, and noise with the signal.
+    what_it_freezes: The extractor (what strings count) and the comparison on that list.
+    what_stays_stochastic: Values the extractor does not see.
+    typical_first_use: Dump class names and inline style strings from one UI surface.
+    harvest_after_repeats: A frequency table of tokens that becomes the style lock.
+    uninstall_when: Extractor is wrong (missing the field). Fix the parser; do not add a judge on raw HTML.
+    examples:
+      - title: TypeScript UI dialect sprawl
+        context: Agents invent competing button styles every feature.
+        how: Parse class and style attributes. Cluster the strings. Promote repeated tokens; flag one-off dialects.
+        outcome: New agent output hits a noisy but scoped gate instead of a “make it pretty” judge.
+
+  - id: linters-local-rules
+    name: Linters plus local rules
+    category: code-quality
+    summary: >
+      Off-the-shelf lint is a deterministic grammar of “we don’t do that here.”
+      Company standards become extra rules, not another LLM opinion.
+    aliases:
+      - eslint / ruff / clippy
+      - custom lint rules
+      - static analysis
+      - style guide as code
+    not_the_same_as:
+      - term: code review agent
+        contrast: A reviewing model can still argue. A lint rule cannot.
+    what_it_freezes: The rule set and its severity.
+    what_stays_stochastic: Code shape that lint does not mention.
+    typical_first_use: Turn on a stock linter, then add one rule for the thing agents keep inventing.
+    harvest_after_repeats: Rules that fired on real agent diffs; delete noisy default rules.
+    uninstall_when: Never uninstall lint. Uninstall rules that only produce ignore-comments.
+    examples:
+      - title: Ban a second HTTP client
+        context: Agents keep adding axios next to fetch.
+        how: Custom lint or grep gate on import lists.
+        outcome: “Use the house client” stops being a prompt hope.
+
+  - id: complexity-hotspots
+    name: Complexity meters with a known-hotspot list
+    category: code-quality
+    summary: >
+      Cyclomatic or similar scores are noisy globally. They become useful once you
+      pin known complex modules and fail only on new spikes or new hotspots.
+    aliases:
+      - cyclomatic complexity
+      - cognitive complexity
+      - hotspot list
+      - complexity ratchet
+    not_the_same_as:
+      - term: “keep functions small”
+        contrast: A global max of 10 on a generated codebase is noise. Local ratchets are the recipe.
+    what_it_freezes: Baseline complexity per file and the list of allowed hotspots.
+    what_stays_stochastic: How the agent writes new functions inside the cap.
+    typical_first_use: Measure once. Save the map. Fail only if a new file exceeds the house cap or an old file jumps.
+    harvest_after_repeats: Hotspots you accept on purpose, named in the list.
+    uninstall_when: You never use a global number as a moral score. Keep the ratchet.
+    examples:
+      - title: Agent “refactors” by stuffing a 200-line handler
+        context: Coverage stayed fine; the file became unreadable.
+        how: Fail if this file’s complexity rises more than δ from baseline, unless it is on the hotspot list.
+        outcome: The quality claim is local and checkable.
+
+  - id: coverage-ratchet
+    name: Coverage as a no-regression ratchet
+    category: code-quality
+    summary: >
+      Do not mandate 80% everywhere. After a baseline run, coverage must not drop
+      as code grows. Project-local threshold, not a religion.
+    aliases:
+      - coverage ratchet
+      - no-regression coverage
+      - diff coverage
+    not_the_same_as:
+      - term: 80% policy
+        contrast: Absolute targets fail across project shapes. The recipe is “do not go backwards.”
+    what_it_freezes: The baseline number (or per-package map) and the allowed drop.
+    what_stays_stochastic: Which tests the agent writes, as long as the ratchet holds.
+    typical_first_use: Record coverage on main. Gate PRs on not going below that minus ε.
+    harvest_after_repeats: Packages that need their own baseline instead of one repo number.
+    uninstall_when: Never replace this with “tests exist.” Uninstall only a fake global 80% rule.
+    examples:
+      - title: Agent adds features, not tests
+        context: Lines of product code grow; suite size does not.
+        how: Fail the skill/PR if total coverage falls versus the last good run.
+        outcome: You get a signal that test mass is not tracking code mass.
+
+  - id: clone-detect-allowlist
+    name: Copy-paste detector with an allowlist
+    category: code-quality
+    summary: >
+      Flag new redundancy. Explicitly keep clones you want — repeated service
+      config, familiar boilerplate. The same detector can mean “too similar” or
+      “not similar enough.”
+    aliases:
+      - PMD CPD
+      - clone detection
+      - DRY checker
+      - redundancy meter
+    not_the_same_as:
+      - term: duplication is always a bug
+        contrast: Familiar repeated config can be the control plane. Allowlist that family.
+    what_it_freezes: Detector threshold plus the allowlisted clone families.
+    what_stays_stochastic: New clones that match no family.
+    typical_first_use: Run CPD once. Sort hits into “please extract” vs “please keep.”
+    harvest_after_repeats: Allowlist file checked in next to the detector config.
+    uninstall_when: An allowlisted family becomes a shared library — then forbid copies of it.
+    examples:
+      - title: Twelve service YAML files
+        context: Detector screams; operators want them to look the same.
+        how: Allowlist `deploy/*/app.yaml` as a required-similar family. Deny a thirteenth dialect.
+        outcome: Redundancy tool becomes a consistency tool.
+
+  - id: pattern-lock
+    name: Pattern lock after discovery
+    category: consistency
+    summary: >
+      First use clustering to find the house style. Then freeze the winning
+      patterns — classes, tokens, idioms — and fail new agents that invent a
+      parallel dialect.
+    aliases:
+      - style lock-in
+      - design tokens
+      - idiom freeze
+      - house style as fixtures
+    not_the_same_as:
+      - term: design system document
+        contrast: A PDF the model may ignore is not a lock. The lock is a check on extracted tokens.
+    what_it_freezes: The winning token/idiom set.
+    what_stays_stochastic: New screens that still compose those tokens.
+    typical_first_use: After extract-then-compare yields a clear majority style, write that set down.
+    harvest_after_repeats: A token file or class allowlist the gate reads.
+    uninstall_when: You never unlock casually. You version the token set when design actually changes.
+    examples:
+      - title: Button dialects
+        context: Cluster showed `btn-primary` winning over three one-off class soups.
+        how: Gate new UI on using `btn-primary` (or tokens it maps to) instead of new inline color stacks.
+        outcome: The next agent feature is forced onto the discovered style.
+
+  - id: noisy-signal-gate
+    name: Noisy signal gate
+    category: consistency
+    summary: >
+      Early on the check will fire a lot. That is expected. Turn noise into a
+      growing fixture list until the gate is mostly quiet and mostly right.
+    aliases:
+      - noisy sensor
+      - harvest loop
+      - fixture accretion
+    not_the_same_as:
+      - term: flaky CI
+        contrast: A flake you ignore is not this recipe. This recipe treats noise as raw material, then tightens.
+    what_it_freezes: The rule that every repeated true-positive becomes a fixture or allow/deny entry.
+    what_stays_stochastic: First-time true unknowns.
+    typical_first_use: Turn the detector on in warn mode. Review the first 20 hits.
+    harvest_after_repeats: Fixtures and allowlist rows; then flip warn to fail.
+    uninstall_when: Warn mode with no harvest after several sessions — the sensor is the wrong cut.
+    examples:
+      - title: First week of CSS clustering
+        context: Half the repo lights up.
+        how: Label hits for two days. Promote repeats. Only then fail the PR.
+        outcome: Gate goes from “everything is red” to “new dialect showed up.”
+
+  - id: schema-boundary
+    name: Schema / typed output at the boundary
+    category: structure
+    summary: >
+      Reject anything that does not parse. Structure is the cheapest determinism
+      you can buy. Invalid output never reaches application logic or a judge.
+    aliases:
+      - structured output
+      - JSON schema
+      - Pydantic / Zod
+      - typed decision primitive
+    not_the_same_as:
+      - term: “please return JSON” in the prompt
+        contrast: A prompt request is not rejection. The boundary must drop or retry unparsable text.
+    what_it_freezes: The schema and the reject/retry policy.
+    what_stays_stochastic: Field values that satisfy the schema.
+    typical_first_use: Put a schema on the skill’s output before any quality talk.
+    harvest_after_repeats: Required fields you discovered agents omit.
+    uninstall_when: Never. Tighten the schema when optional chaos becomes a known requirement.
+    examples:
+      - title: Skill output is “JSON-ish”
+        context: Trailing commentary breaks parsers downstream.
+        how: Validate against schema; retry once; else fail the run.
+        outcome: Downstream code stops being a second parser.
+
+  - id: finite-state-transitions
+    name: Finite-state / allowed transitions
+    category: structure
+    summary: >
+      The model chooses among legal next states. Code owns the loop. Illegal
+      transitions are bugs, not creative plans.
+    aliases:
+      - FSM agent
+      - allowed tool per state
+      - state-machine routing
+      - structured planning validation
+    not_the_same_as:
+      - term: ReAct free loop
+        contrast: Unbounded “think/act” is the thing this recipe replaces.
+    what_it_freezes: The graph of states and legal edges.
+    what_stays_stochastic: Arguments and text inside a legal state.
+    typical_first_use: Name 4–6 states for one skill and bind one tool family each.
+    harvest_after_repeats: Edges the model kept trying that you either add on purpose or keep forbidden.
+    uninstall_when: Never on side-effecting paths. You may add an escape edge to human/escalate.
+    examples:
+      - title: Skill must not call deploy during explore
+        context: Agent jumps to a mutating tool mid-analysis.
+        how: EXPLORE tools are read-only. MUTATE is a later state, only after VALIDATE.
+        outcome: The dangerous call is an illegal transition in the log.
+
+  - id: baseline-replay
+    name: Baseline replay
+    category: structure
+    summary: >
+      Same fixtures, same mocks, same environment. Compare candidate vs last-good
+      report. Drift is a signal even when absolute “correct” is undefined.
+    aliases:
+      - eval harness
+      - golden run
+      - regression suite
+      - candidate vs baseline
+    not_the_same_as:
+      - term: production monitoring
+        contrast: Live drift is not a controlled replay. Replay needs pinned inputs.
+    what_it_freezes: The fixture set, mocks, and the last-good report.
+    what_stays_stochastic: How the new agent gets to a similar report.
+    typical_first_use: Record one skill’s outputs on a frozen ticket pack. Diff the next change.
+    harvest_after_repeats: Fixtures that caught real regressions; drop ones that only catch wording.
+    uninstall_when: Never uninstall replay. Refresh the baseline when you intentionally change behavior.
+    examples:
+      - title: Skill prompt tweak
+        context: You cannot say the new prompt is better in the abstract.
+        how: Replay 12 frozen tickets. Fail on schema regressions and on known-ambiguity hits. Soft-diff the rest.
+        outcome: You see what moved before you ship the skill.
+
+  - id: compose-two-to-four
+    name: Compose two to four gates
+    category: composition
+    summary: >
+      Pick a small stack. Prefer invariants and metrics over judges. Use similarity
+      plus a known corpus to harvest fixtures. Use quorum only while a criterion
+      is flaky. When the flake has a name, uninstall the quorum and leave the cheap
+      check.
+    aliases:
+      - eval stack
+      - layered gates
+      - onion peel
+      - harvest → ratchet → uninstall
+    not_the_same_as:
+      - term: more metrics is better
+        contrast: A dashboard of twelve judges is not composition. Composition is a short, ordered peel.
+    what_it_freezes: The active stack for this problem — usually 2–4 layers.
+    what_stays_stochastic: The unpeeled core, which should get smaller over time.
+    typical_first_use: One invariant + one noisy sensor. No third tool until the first two taught you something.
+    harvest_after_repeats: A written stack for that skill or surface, with uninstall notes.
+    uninstall_when: A layer that no longer changes decisions.
+    examples:
+      - title: UI skill stack
+        context: Agents keep shipping inconsistent screens and untested files.
+        how: Schema/lint → extract-then-compare (warn) → coverage ratchet → pattern lock after a week of harvest. No standing judge.
+        outcome: Chaos shrinks on two axes you can name. The leftover is actual design choice, not format drift.

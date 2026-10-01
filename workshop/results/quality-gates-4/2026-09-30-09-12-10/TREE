@@ -1,0 +1,101 @@
+.
+├── .claude
+│   ├── agents
+│   │   └── participant.md
+│   ├── commands
+│   ├── hooks
+│   │   └── log-prompt.sh
+│   ├── skills
+│   │   ├── check-redundancies
+│   │   │   └── SKILL.md
+│   │   ├── implement
+│   │   │   └── SKILL.md
+│   │   └── refine
+│   │       └── SKILL.md
+│   └── settings.json
+├── .githooks
+│   └── pre-commit
+├── .github
+│   └── workflows
+│       └── ci.yml
+├── docs
+│   ├── rules
+│   │   └── WOW.md
+│   ├── specs
+│   │   ├── SPEC.v1-todo-list-cli-mvp.md
+│   │   ├── SPEC.v2-todo-list-cli-output-formats.md
+│   │   ├── SPEC.v3-todo-list-cli-config.md
+│   │   └── SPEC.v4-todo-list-cli-planning.md
+│   └── PROMPTS.md
+├── project
+│   ├── project
+│   ├── build.properties
+│   └── plugins.sbt
+├── scripts
+│   ├── check-redundancies-cpd
+│   │   ├── project
+│   │   │   └── build.properties
+│   │   ├── src
+│   │   │   └── main
+│   │   │       └── scala
+│   │   │           └── CheckRedundancies.scala
+│   │   ├── .gitignore
+│   │   └── build.sbt
+│   ├── spec-check-scala
+│   │   ├── project
+│   │   │   └── build.properties
+│   │   ├── src
+│   │   │   └── main
+│   │   │       └── scala
+│   │   │           └── SpecCheck.scala
+│   │   ├── .gitignore
+│   │   ├── build.sbt
+│   │   └── run
+│   └── check-redundancies
+├── snapshots
+│   └── redundancy-report.json
+├── src
+│   ├── main
+│   │   ├── resources
+│   │   │   └── reference.conf
+│   │   └── scala
+│   │       ├── todo
+│   │       │   ├── config
+│   │       │   │   └── AppConfig.scala
+│   │       │   ├── core
+│   │       │   │   ├── Title.scala
+│   │       │   │   ├── Todo.scala
+│   │       │   │   ├── TodoId.scala
+│   │       │   │   └── Todos.scala
+│   │       │   ├── render
+│   │       │   │   └── Renderer.scala
+│   │       │   ├── store
+│   │       │   │   ├── Store.scala
+│   │       │   │   └── TodoRecord.scala
+│   │       │   ├── Cli.scala
+│   │       │   ├── Greeting.scala
+│   │       │   └── Main.scala
+│   │       └── .gitkeep
+│   └── test
+│       └── scala
+│           ├── todo
+│           │   ├── config
+│           │   │   └── AppConfigSuite.scala
+│           │   ├── core
+│           │   │   ├── TitleSuite.scala
+│           │   │   ├── TodosPropertySuite.scala
+│           │   │   └── TodosSuite.scala
+│           │   ├── render
+│           │   │   └── RendererSuite.scala
+│           │   ├── store
+│           │   │   └── StoreSuite.scala
+│           │   ├── CliSuite.scala
+│           │   └── GreetingSuite.scala
+│           └── .gitkeep
+├── .gitignore
+├── .scalafmt.conf
+├── build.sbt
+├── CLAUDE.md
+├── justfile
+├── README.md
+└── session.jsonl

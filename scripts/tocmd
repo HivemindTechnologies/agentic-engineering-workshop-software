@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Scala ATX heading TOC / outline compare (scala-cli). Skills keep calling scripts/tocmd.
+#   scripts/tocmd [--lines] <path.md|directory>
+#   scripts/tocmd --compare <path-a> <path-b>
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+# Drop a lone leading "--" so `just tocmd -- --compare a b` works.
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+# -q keeps compile chatter off stdout/stderr once dependencies are cached.
+# On a cold cache scala-cli may still print progress; tests accept that noise.
+exec scala-cli -q --server=false "$here/tocmd.scala" -- "$@"

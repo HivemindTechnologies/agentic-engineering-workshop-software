@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Copy develop/ into a result stamp, excluding heavy/non-source trees.
+# Usage: capture-result-tree <develop-dir> <stamp-dir>
+set -euo pipefail
+src="${1:?develop-dir}"
+dest="${2:?stamp-dir}"
+[[ -d "$src" ]] || { echo "no develop tree: $src" >&2; exit 1; }
+mkdir -p "$dest"
+# Keep session.jsonl if already present; rsync --delete would wipe it if we used delete.
+# Copy contents; skip excluded names at any depth via --exclude.
+rsync -a \
+  --exclude '.git/' \
+  --exclude 'target/' \
+  --exclude '.claude-home/' \
+  --exclude '.bloop/' \
+  --exclude '.metals/' \
+  --exclude '.bsp/' \
+  --exclude 'session.jsonl' \
+  "$src"/ "$dest"/
+# Pruned listing for directors (v13.M8); written after copy so it is not rsynced away.
+here=$(cd "$(dirname "$0")" && pwd)
+python3 "$here/pruned-tree" --write "$dest/TREE" "$dest"

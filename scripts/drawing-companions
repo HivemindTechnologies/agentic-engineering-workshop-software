@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""Drawing companions — contract, checksum, generate-missing, status (outer.v18).
+
+Pairing: docs/drawings/<stem>.excalidraw ↔ docs/drawings/<stem>.md
+
+  scripts/drawing-companions status [--fail] [drawings-dir]
+  scripts/drawing-companions generate-missing [drawings-dir]
+  scripts/drawing-companions checksum <drawing.excalidraw>
+
+Does not start Claude. Generate-missing writes stubs only; rich prose is the skill.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import re
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_DRAWINGS = ROOT / "docs" / "drawings"
+TOOL_ID = "drawing-companions"
+
+FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n?", re.DOTALL)
+GENERATED_REGION = re.compile(
+    r"<!-- generated:begin -->\s*(.*?)\s*<!-- generated:end -->",
+    re.DOTALL,
+)
+CURATED_REGION = re.compile(
+    r"<!-- curated:begin -->\s*(.*?)\s*<!-- curated:end -->",
+    re.DOTALL,
+)
+
+
+@dataclass
+class Companion:
+    drawing: str
+    source_sha256: str
+    generated_by: str
+    generated_at: str
+    generated_body: str
+    curated_body: str
+    path: Path | None = None
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def companion_path_for(drawing: Path) -> Path:
+    if drawing.suffix != ".excalidraw":
+        raise ValueError(f"not an excalidraw drawing: {drawing}")
+    if drawing.parent.name == "output":
+        raise ValueError(f"SVG/output paths are not drawings: {drawing}")
+    return drawing.with_suffix(".md")
+
+
+def list_drawings(drawings_dir: Path) -> list[Path]:
+    if not drawings_dir.is_dir():
+        return []
+    return sorted(
+        p
+        for p in drawings_dir.glob("*.excalidraw")
+        if p.is_file() and p.parent.name != "output"
+    )
+
+
+def parse_frontmatter(block: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for raw in block.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            raise ValueError(f"frontmatter line missing ':': {raw!r}")
+        key, _, value = line.partition(":")
+        fields[key.strip()] = value.strip().strip("\"'")
+    return fields
+
+
+def parse_companion(text: str, path: Path | None = None) -> Companion:
+    fm = FRONTMATTER.match(text)
+    if fm is None:
+        raise ValueError("companion missing YAML frontmatter")
+    fields = parse_frontmatter(fm.group(1))
+    required = ("drawing", "source_sha256", "generated_by", "generated_at")
+    missing = [k for k in required if not fields.get(k)]
+    if missing:
+        raise ValueError(f"companion frontmatter missing: {', '.join(missing)}")
+    gen = GENERATED_REGION.search(text)
+    cur = CURATED_REGION.search(text)
+    if gen is None:
+        raise ValueError("companion missing <!-- generated:begin/end --> region")
+    if cur is None:
+        raise ValueError("companion missing <!-- curated:begin/end --> region")
+    return Companion(
+        drawing=fields["drawing"],
+        source_sha256=fields["source_sha256"],
+        generated_by=fields["generated_by"],
+        generated_at=fields["generated_at"],
+        generated_body=gen.group(1).strip(),
+        curated_body=cur.group(1).strip(),
+        path=path,
+    )
+
+
+def contract_errors(drawing: Path, companion_file: Path) -> list[str]:
+    """Return human-readable contract violations (empty = ok)."""
+    errors: list[str] = []
+    expected = companion_path_for(drawing)
+    if companion_file.resolve() != expected.resolve():
+        errors.append(
+            f"companion path must be {expected.name} beside {drawing.name}, "
+            f"got {companion_file}"
+        )
+    if not companion_file.is_file():
+        errors.append(f"missing companion: {companion_file}")
+        return errors
+    try:
+        companion = parse_companion(
+            companion_file.read_text(encoding="utf-8"), companion_file
+        )
+    except ValueError as exc:
+        errors.append(f"{companion_file.name}: {exc}")
+        return errors
+    if companion.drawing != drawing.name:
+        errors.append(
+            f"{companion_file.name}: drawing field {companion.drawing!r} "
+            f"does not match {drawing.name!r}"
+        )
+    return errors
+
+
+def is_stale(drawing: Path, companion: Companion) -> bool:
+    return companion.source_sha256 != sha256_file(drawing)
+
+
+def render_companion(
+    drawing: Path,
+    *,
+    checksum: str | None = None,
+    generated_body: str | None = None,
+    curated_body: str | None = None,
+    generated_at: str | None = None,
+) -> str:
+    digest = checksum or sha256_file(drawing)
+    when = generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stub = (
+        generated_body
+        if generated_body is not None
+        else (
+            f"## Summary\n\n"
+            f"_Stub — run `/drawing-companions` (or reinterpret) to describe "
+            f"`{drawing.name}`._\n"
+        )
+    )
+    curated = (
+        curated_body
+        if curated_body is not None
+        else "## Ideas\n\n_Add talking points and corrections here._\n"
+    )
+    return (
+        "---\n"
+        f"drawing: {drawing.name}\n"
+        f"source_sha256: {digest}\n"
+        f"generated_by: {TOOL_ID}\n"
+        f"generated_at: {when}\n"
+        "---\n\n"
+        "<!-- generated:begin -->\n"
+        f"{stub.rstrip()}\n"
+        "<!-- generated:end -->\n\n"
+        "<!-- curated:begin -->\n"
+        f"{curated.rstrip()}\n"
+        "<!-- curated:end -->\n"
+    )
+
+
+def status_rows(drawings_dir: Path) -> tuple[list[str], list[str], list[str]]:
+    """Return (ok, missing, stale) basename lists."""
+    ok: list[str] = []
+    missing: list[str] = []
+    stale: list[str] = []
+    for drawing in list_drawings(drawings_dir):
+        companion_file = companion_path_for(drawing)
+        if not companion_file.is_file():
+            missing.append(drawing.name)
+            continue
+        errors = contract_errors(drawing, companion_file)
+        if errors:
+            stale.append(drawing.name)  # treat broken contract as actionable
+            continue
+        companion = parse_companion(
+            companion_file.read_text(encoding="utf-8"), companion_file
+        )
+        if is_stale(drawing, companion):
+            stale.append(drawing.name)
+        else:
+            ok.append(drawing.name)
+    return ok, missing, stale
+
+
+def cmd_status(drawings_dir: Path, fail: bool) -> int:
+    ok, missing, stale = status_rows(drawings_dir)
+    print(f"drawings: {drawings_dir}")
+    print(f"ok: {len(ok)}  missing: {len(missing)}  stale: {len(stale)}")
+    for name in missing:
+        print(f"  missing  {name}")
+    for name in stale:
+        print(f"  stale    {name}")
+    if fail and (missing or stale):
+        return 1
+    return 0
+
+
+def cmd_generate_missing(drawings_dir: Path) -> int:
+    created = 0
+    for drawing in list_drawings(drawings_dir):
+        companion_file = companion_path_for(drawing)
+        if companion_file.is_file():
+            continue
+        companion_file.write_text(render_companion(drawing), encoding="utf-8")
+        print(f"created {companion_file.relative_to(ROOT) if companion_file.is_relative_to(ROOT) else companion_file}")
+        created += 1
+    if created == 0:
+        print("generate-missing: nothing to create")
+    else:
+        print(f"generate-missing: created {created}")
+    return 0
+
+
+def cmd_checksum(drawing: Path) -> int:
+    if not drawing.is_file():
+        print(f"missing drawing: {drawing}", file=sys.stderr)
+        return 1
+    print(sha256_file(drawing))
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    status_p = sub.add_parser("status", help="list missing/stale companions")
+    status_p.add_argument(
+        "drawings_dir",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_DRAWINGS,
+    )
+    status_p.add_argument(
+        "--fail",
+        action="store_true",
+        help="exit 1 when any companion is missing or stale",
+    )
+
+    gen_p = sub.add_parser(
+        "generate-missing",
+        help="create stub companions only where missing (never overwrite)",
+    )
+    gen_p.add_argument(
+        "drawings_dir",
+        nargs="?",
+        type=Path,
+        default=DEFAULT_DRAWINGS,
+    )
+
+    sum_p = sub.add_parser("checksum", help="print sha256 of a drawing file")
+    sum_p.add_argument("drawing", type=Path)
+
+    args = parser.parse_args(argv)
+    if args.cmd == "status":
+        return cmd_status(args.drawings_dir, args.fail)
+    if args.cmd == "generate-missing":
+        return cmd_generate_missing(args.drawings_dir)
+    if args.cmd == "checksum":
+        return cmd_checksum(args.drawing)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Fail when a reveal-md slide has more than one #/## title (outside fences).
+#   scripts/slide-double-heading presentation/lessons
+#   scripts/slide-double-heading path/to/file.md
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+exec scala-cli -q --server=false "$here/slide-double-heading.scala" -- "$@"

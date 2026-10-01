@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+import shutil
+import subprocess
+import sys
+from datetime import datetime, timedelta
+from pathlib import Path
+
+SESSION = Path(__file__).resolve().parent / "participant-session"
+SPEC = "docs/specs/SPEC.v1-todo-list-cli-mvp.md"
+PATHS = {
+    "refine-1": (SPEC,),
+    "refine-1a": (SPEC,),
+    "refine-2": (SPEC,),
+    "refine-3": (SPEC,),
+    "refine-4": (SPEC,),
+    "refine-5": (SPEC,),
+    "refine-6": (SPEC,),
+    "implement-1": (SPEC, "build.sbt"),
+    "implement-1b": (SPEC,),
+    "implement-2": (SPEC, "build.sbt"),
+    "quality-gates-1": ("justfile",),
+    "refine-7": (SPEC,),
+    "quality-gates-2": (SPEC,),
+    "skills-1": (".claude/skills/refine/SKILL.md", ".claude/skills/implement/SKILL.md"),
+    "skills-2": (SPEC,),
+    "quality-gates-3": (SPEC, ".githooks/pre-commit"),
+    "quality-gates-4": ("snapshots/redundancy-report.json",),
+}
+
+
+def flag(argv, name):
+    if name not in argv:
+        print(f"missing {name}", file=sys.stderr)
+        raise SystemExit(1)
+    index = argv.index(name)
+    if index + 1 >= len(argv):
+        print(f"missing value for {name}", file=sys.stderr)
+        raise SystemExit(1)
+    return argv[index + 1]
+
+
+def repeated(argv, name):
+    values = []
+    index = 0
+    while index < len(argv):
+        if argv[index] == name:
+            values.append(argv[index + 1])
+            index += 2
+            continue
+        index += 1
+    return values
+
+
+def paths(lesson):
+    if lesson not in PATHS:
+        return 1
+    print("\n".join(PATHS[lesson]))
+    return 0
+
+
+def judge_min(forks):
+    count = int(forks)
+    if count < 1:
+        print(f"bad forks: {forks}", file=sys.stderr)
+        return 1
+    print(count if count > 1 else 1)
+    return 0
+
+
+def claim(dest):
+    path = Path(dest)
+    if path.exists():
+        print(f"stamp exists: {path}", file=sys.stderr)
+        return 1
+    path.mkdir(parents=True)
+    return 0
+
+
+def restore(work, sha):
+    subprocess.run(["git", "-C", work, "reset", "--hard", sha], check=True)
+    subprocess.run(
+        ["git", "-C", work, "clean", "-fd", "-e", ".claude-home", "-e", ".claude"],
+        check=True,
+    )
+    return 0
+
+
+def stamp_name(moment):
+    return moment.strftime("%Y-%m-%d-%H-%M-%S")
+
+
+def copy_expected(work, dest, expects):
+    for rel in expects:
+        source = Path(work) / rel
+        if not source.is_file():
+            continue
+        target = Path(dest) / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+
+
+def run_forks(work, results, forks, depth, prepared, message, expects, stamps, command):
+    if forks > 1 and not prepared:
+        print("missing --prepared", file=sys.stderr)
+        return 1
+    if stamps and len(stamps) != forks:
+        print(f"expected {forks} stamps, got {len(stamps)}", file=sys.stderr)
+        return 1
+    base = datetime.now().replace(microsecond=0)
+    code = 0
+    for index in range(forks):
+        if index:
+            restore(work, prepared)
+        stamp = stamps[index] if stamps else stamp_name(base + timedelta(seconds=index))
+        dest = Path(results) / stamp
+        if claim(dest) != 0:
+            return 1
+        cmd = [
+            str(SESSION),
+            "run",
+            "--work",
+            work,
+            "--log",
+            str(dest / "session.jsonl"),
+            "--message",
+            message,
+        ]
+        if depth is not None:
+            cmd += ["--depth", str(depth)]
+        for rel in expects:
+            cmd += ["--expect", rel]
+        cmd += ["--", *command]
+        print(f"fork {index + 1} -> {dest}")
+        result = subprocess.run(cmd)
+        copy_expected(work, dest, expects)
+        if result.returncode != 0:
+            code = result.returncode
+    return code
+
+
+def parse_run(argv):
+    if "--" not in argv:
+        print("missing -- command", file=sys.stderr)
+        return 1
+    sep = argv.index("--")
+    flags = argv[:sep]
+    command = argv[sep + 1 :]
+    if not command:
+        print("missing command", file=sys.stderr)
+        return 1
+    forks = int(flag(flags, "--forks")) if "--forks" in flags else 1
+    if forks < 1:
+        print(f"bad forks: {forks}", file=sys.stderr)
+        return 1
+    depth = None
+    if "--depth" in flags:
+        raw = flag(flags, "--depth")
+        if not raw.isdigit() or int(raw) < 1:
+            print(f"bad depth: {raw}", file=sys.stderr)
+            return 1
+        depth = int(raw)
+    prepared = flag(flags, "--prepared") if "--prepared" in flags else ""
+    return run_forks(
+        flag(flags, "--work"),
+        flag(flags, "--results"),
+        forks,
+        depth,
+        prepared,
+        flag(flags, "--message"),
+        repeated(flags, "--expect"),
+        repeated(flags, "--stamp"),
+        command,
+    )
+
+
+def main(argv):
+    if not argv:
+        print("usage: lesson-forks paths|judge-min|claim|restore|run", file=sys.stderr)
+        return 1
+    if argv[0] == "paths":
+        return paths(argv[1])
+    if argv[0] == "judge-min":
+        return judge_min(argv[1])
+    if argv[0] == "claim":
+        return claim(argv[1])
+    if argv[0] == "restore":
+        return restore(argv[1], argv[2])
+    if argv[0] == "run":
+        return parse_run(argv[1:])
+    print(f"unknown command: {argv[0]}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

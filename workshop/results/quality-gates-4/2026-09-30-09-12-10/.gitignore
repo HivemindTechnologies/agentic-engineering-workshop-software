@@ -1,0 +1,15 @@
+target/
+project/target/
+project/project/
+.bsp/
+.bloop/
+.metals/
+.cache/
+.direnv/
+
+# the CLI's default store — a runtime artifact, never checked in
+todos.yaml
+
+# Claude Code home for this lesson. Recreated by the harness.
+.claude-home/
+.claude/settings.local.json

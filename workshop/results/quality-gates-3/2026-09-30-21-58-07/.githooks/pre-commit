@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Runs the quality gates before every commit:
+#   just check      — scalafmt, compile with -Werror, tests
+#   just spec-check — deterministic structure gate on docs/specs
+# Installed via `just install-hooks`.
+set -euo pipefail
+
+just check
+just spec-check

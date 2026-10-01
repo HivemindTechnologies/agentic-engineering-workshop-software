@@ -1,0 +1,24 @@
+# Schema for one recipe in the deterministic-gates registry.
+# Every catalog entry MUST use these keys. Extra keys go under `notes`.
+#
+# Purpose: AI-loadable registry. Humans can read it; skills must not invent fields.
+
+id: string                    # kebab-case, stable
+name: string                  # teaching name
+category: string              # framing | decomposition | ensembles | similarity | code-quality | consistency | structure | composition
+summary: string               # 2-3 sentences max
+aliases: [string]             # existing terminology, synonyms, search terms
+not_the_same_as:              # same word, different job
+  - term: string
+    contrast: string
+what_it_freezes: string       # the control plane this recipe tries to hold still
+what_stays_stochastic: string
+typical_first_use: string     # the probe / first onion layer
+harvest_after_repeats: string # what you freeze after 2-3 noisy passes
+uninstall_when: string        # stop rule; empty if this layer is meant to stay
+examples:
+  - title: string
+    context: string
+    how: string
+    outcome: string
+notes: string                 # optional

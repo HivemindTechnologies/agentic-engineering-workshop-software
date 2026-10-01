@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Assemble the deck, serve it, and print it to a PDF with headless Chromium.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+# Resolve reveal-md from local devDependencies.
+export PATH="$PWD/node_modules/.bin:$PATH"
+
+# Keep the Puppeteer browser inside the project, not in ~/.cache.
+# Install it once with: PUPPETEER_CACHE_DIR=$PWD/.build/puppeteer npx puppeteer browsers install chrome
+export PUPPETEER_CACHE_DIR="$PWD/.build/puppeteer"
+
+DECK="deck-${1:-software-part1}.md"
+OUT="${2:-workshop-${1:-software-part1}.pdf}"
+PORT="${PORT:-1948}"
+[[ -f "$DECK" ]] || { echo "no such spine: $DECK"; exit 1; }
+./.bin/build-deck "$DECK" >/dev/null
+
+reveal-md ".build/$DECK" \
+  --css theme/hivemind.css,theme/print-pdf.css \
+  --scripts theme/hivemind.js \
+  --port "$PORT" &
+SERVER=$!
+trap 'kill "$SERVER" 2>/dev/null || true' EXIT
+
+# Wait for the server.
+for _ in $(seq 1 20); do
+  curl -sf -o /dev/null "http://localhost:${PORT}/$DECK" && break
+  sleep 0.5
+done
+
+node ./.bin/_print.mjs "http://localhost:${PORT}/$DECK" "$OUT"

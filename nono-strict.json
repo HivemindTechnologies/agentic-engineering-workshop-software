@@ -1,0 +1,38 @@
+{
+  "meta": {
+    "name": "todo-list-cli-strict",
+    "description": "Same boundary as nono.json: $WORKDIR must be develop/. Adds domain filtering. The token stays in the OS keyring; the sandbox sees a phantom. Untested on macOS."
+  },
+  "extends": "default",
+  "groups": {
+    "include": ["deny_credentials", "deny_shell_history", "nix_runtime", "java_runtime", "system_read_linux_core"]
+  },
+  "filesystem": {
+    "allow": ["$WORKDIR"],
+    "unix_socket_subtree_bind": ["/tmp", "$TMPDIR"]
+  },
+  "network": {
+    "allow_domain": [
+      "api.anthropic.com",
+      "platform.claude.com",
+      "claude.ai",
+      "claude.com",
+      "repo1.maven.org",
+      "repo.scala-sbt.org",
+      "oss.sonatype.org"
+    ],
+    "credentials": ["anthropic"],
+    "custom_credentials": {
+      "anthropic": {
+        "upstream": "https://api.anthropic.com",
+        "credential_key": "claude_code_oauth_token",
+        "env_var": "CLAUDE_CODE_OAUTH_TOKEN",
+        "inject_header": "Authorization",
+        "credential_format": "Bearer {}"
+      }
+    }
+  },
+  "environment": {
+    "deny_vars": ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"]
+  }
+}

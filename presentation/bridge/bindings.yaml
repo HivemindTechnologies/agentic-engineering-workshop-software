@@ -1,0 +1,74 @@
+# Lesson-backed exercises for the software deck.
+# Each entry: exercise id (deck file stem) <- journey lesson id (sandbox).
+# Optional `lead` is a director-only note on placement. The bridge never renders it.
+# Steckbrief files use a `lesson-` prefix so they never clash with theory
+# lessons (e.g. lesson-skills1.md vs skills1.md). Shape:
+#   ^(?:lesson-)?[a-z]+\d+[a-z]?$
+- exercise: lesson-refine1
+  lesson: refine-1
+  name: Refine
+  lead: After Variance 1 — same sandbox refine prompt, fresh sessions; watch the programs diverge before the ring thickens.
+- exercise: lesson-refine1a
+  lesson: refine-1a
+  name: Refine
+  lead: Same refine-1 request with /refine in front; the command must ask when a criterion would otherwise be a guess.
+- exercise: lesson-refine2
+  lesson: refine-2
+  name: Refine
+  lead: First real refine prompt after the /refine habit lands.
+- exercise: lesson-refine3
+  lesson: refine-3
+  name: Refine
+  lead: XP-style refine — milestones as tiny tasks.
+- exercise: lesson-refine4
+  lesson: refine-4
+  name: Refine
+  lead: Refine with ways-of-working references in the prompt.
+- exercise: lesson-refine5
+  lesson: refine-5
+  name: Refine
+  lead: Rerun with refined CLAUDE.md including WOW.md.
+- exercise: lesson-refine6
+  lesson: refine-6
+  name: Refine
+  lead: Further refinements as new SPECs.
+- exercise: lesson-implement1
+  lesson: implement-1
+  name: Implement
+  lead: Implement the SPEC after the refine chain.
+- exercise: lesson-implement1b
+  lesson: implement-1b
+  name: Implement
+  lead: Mark the milestone done — close the implement loop.
+- exercise: lesson-implement2
+  lesson: implement-2
+  name: Implement
+  lead: Implement real function with the next two milestones.
+- exercise: lesson-qualitygates1
+  lesson: quality-gates-1
+  name: Quality Gates
+  lead: Introduce a pre-commit hook to run just check.
+- exercise: lesson-refine7
+  lesson: refine-7
+  name: Refine
+  lead: Rerefine the spec to add a scalafmt quality gate.
+- exercise: lesson-qualitygates2
+  lesson: quality-gates-2
+  name: Quality Gates
+  lead: Run just check on every commit.
+- exercise: lesson-skills1
+  lesson: skills-1
+  name: Skills
+  lead: Turn Claude commands into skills (journey Steckbrief).
+- exercise: lesson-skills2
+  lesson: skills-2
+  name: Skills
+  lead: Test skills auto-loading.
+- exercise: lesson-qualitygates3
+  lesson: quality-gates-3
+  name: Quality Gates
+  lead: Specs checked deterministically (Scala spec-check).
+- exercise: lesson-qualitygates4
+  lesson: quality-gates-4
+  name: Quality Gates
+  lead: Quiet the app under a redundancy gate.

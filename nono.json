@@ -1,0 +1,85 @@
+{
+  "meta": {
+    "name": "todo-list-cli",
+    "version": "1.0.0",
+    "description": "Claude Code sandbox profile (formerly the registry Claude pack) plus the working directory. Recipes cd into develop/ before launching, so the grant is that directory and not the harness. .cache/ is allowed separately, for Coursier and sbt. Network unfiltered; on macOS the login keychain is readable."
+  },
+  "extends": "default",
+  "groups": {
+    "include": [
+      "deny_credentials",
+      "deny_shell_history",
+      "nix_runtime",
+      "java_runtime",
+      "system_read_linux_core",
+      "git_config",
+      { "name": "claude_code_macos", "when": "macos" },
+      { "name": "claude_code_linux", "when": "linux" },
+      { "name": "user_caches_macos", "when": "macos" },
+      { "name": "claude_cache_linux", "when": "linux" },
+      "node_runtime",
+      "rust_runtime",
+      "python_runtime",
+      { "name": "vscode_macos", "when": "macos" },
+      { "name": "vscode_linux", "when": "linux" },
+      { "name": "linux_sysfs_read", "when": "linux" },
+      "unlink_protection"
+    ]
+  },
+  "security": {
+    "signal_mode": "isolated",
+    "capability_elevation": false
+  },
+  "filesystem": {
+    "allow": [
+      "$WORKDIR",
+      "$HOME/.claude",
+      "$HOME/.local/state/claude/locks",
+      "$HOME/.cache/claude",
+      "$NONO_CONFIG/profile-drafts",
+      "/tmp/claude-$UID",
+      { "path": "$HOME/Library/Keychains", "when": "macos" }
+    ],
+    "read": [
+      "$NONO_PACKAGES",
+      "$NONO_CONFIG/profiles"
+    ],
+    "allow_file": [
+      "$HOME/.claude.json",
+      "$HOME/.claude.json.lock",
+      "$HOME/.claude.lock"
+    ],
+    "bypass_protection": [
+      { "path": "$HOME/Library/Keychains", "when": "macos" }
+    ],
+    "unix_socket_dir_bind": [
+      { "path": "$XDG_RUNTIME_DIR/cc-socks", "when": "linux" }
+    ],
+    "unix_socket_subtree_bind": ["/tmp", "$TMPDIR"]
+  },
+  "network": { "block": false },
+  "workdir": { "access": "readwrite" },
+  "session_hooks": {
+    "before": {
+      "script": "$WORKDIR/../scripts/nono-ensure-claude-dirs.sh",
+      "timeout_secs": 10
+    }
+  },
+  "open_urls": {
+    "allow_origins": [
+      "https://claude.ai",
+      "https://claude.com",
+      "https://api.anthropic.com",
+      "https://platform.claude.com"
+    ],
+    "allow_localhost": true
+  },
+  "diagnostics": {
+    "suppress_system_services": ["forbidden-exec-sugid"]
+  },
+  "allow_launch_services": true,
+  "rollback": {
+    "exclude_patterns": ["node_modules", ".next", "__pycache__", "target"],
+    "exclude_globs": ["*.tmp.[0-9]*.[0-9a-f]*"]
+  }
+}

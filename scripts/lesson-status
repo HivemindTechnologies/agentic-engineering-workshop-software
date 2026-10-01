@@ -1,0 +1,374 @@
+#!/usr/bin/env python3
+import json
+import re
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import journey
+
+EXPECTED = {
+    "refine-1": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "refine-1a": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "refine-2": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "refine-3": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "refine-4": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "refine-5": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "refine-6": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "implement-1": "build.sbt",
+    "implement-1b": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "implement-2": "build.sbt",
+    "quality-gates-1": "justfile",
+    "refine-7": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "quality-gates-2": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "skills-1": ".claude/skills/refine/SKILL.md",
+    "skills-2": "docs/specs/SPEC.v1-todo-list-cli-mvp.md",
+    "quality-gates-3": ".githooks/pre-commit",
+    "quality-gates-4": "snapshots/redundancy-report.json",
+}
+STAMP = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}$")
+USAGE_FIELDS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_creation_input_tokens",
+    "cache_read_input_tokens",
+)
+
+
+def measure_record(text):
+    events = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    result = next((event for event in reversed(events) if event.get("type") == "result"), None)
+    if result is not None and "num_turns" in result:
+        interactions = result["num_turns"]
+    else:
+        interactions = sum(1 for event in events if event.get("type") == "assistant")
+    usage = None if result is None else result.get("usage")
+    length = None if usage is None else sum(usage.get(field, 0) for field in USAGE_FIELDS)
+    wall = None
+    for event in events:
+        if event.get("type") == "wall" and "wall_seconds" in event:
+            wall = int(event["wall_seconds"])
+    return {
+        "interactions": interactions,
+        "length": length,
+        "wall_seconds": wall,
+        "capped": any(event.get("type") == "capped" for event in events),
+    }
+
+
+def measures(text):
+    record = measure_record(text)
+    length = "absent" if record["length"] is None else str(record["length"])
+    wall = "absent" if record["wall_seconds"] is None else str(record["wall_seconds"])
+    line = f"interactions={record['interactions']} length={length} wall_seconds={wall}"
+    if record["capped"]:
+        line += " capped=yes"
+    return line
+
+
+def cutoff_of(lesson_dir):
+    path = lesson_dir / "cutoff"
+    if not path.is_file():
+        return ""
+    cutoff = path.read_text().strip()
+    if not STAMP.fullmatch(cutoff):
+        raise SystemExit(f"bad cutoff in {path}: {cutoff}")
+    return cutoff
+
+
+MARK = re.compile(
+    r" \(last: (?:PASS|FAIL simulate|FAIL judge|not run)"
+    r"(?: [0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2})?\)$"
+)
+
+
+def in_range_trees(lesson_dir, cutoff):
+    trees = []
+    if lesson_dir.is_dir():
+        for path in lesson_dir.iterdir():
+            if path.is_dir() and STAMP.fullmatch(path.name) and (not cutoff or path.name >= cutoff):
+                trees.append(path.name)
+    trees.sort()
+    return trees
+
+
+def status_word(lesson, lesson_dir, cutoff, trees):
+    if lesson not in EXPECTED or not trees:
+        return "not run"
+    if any(not (lesson_dir / stamp / EXPECTED[lesson]).is_file() for stamp in trees):
+        return "FAIL simulate"
+    verdict = newest_verdict(lesson_dir, cutoff)
+    return "PASS" if verdict == "pass" else "FAIL judge"
+
+
+def lessons(root):
+    return journey.order_path(journey.journey_beside_results(root))
+
+
+def mark_of(root, lesson):
+    if lesson not in lessons(root):
+        raise SystemExit(f"unknown lesson: {lesson}")
+    lesson_dir = root / lesson
+    cutoff = cutoff_of(lesson_dir)
+    trees = in_range_trees(lesson_dir, cutoff)
+    word = status_word(lesson, lesson_dir, cutoff, trees)
+    if not trees:
+        return word
+    return f"{word} {trees[-1]}"
+
+
+def write_heading(journey, results, lesson):
+    path = Path(journey)
+    text = path.read_text()
+    lines = text.splitlines()
+    prefix = f"# {lesson}:"
+    mark = mark_of(Path(results), lesson)
+    found = False
+    for index, line in enumerate(lines):
+        if line.startswith(prefix):
+            lines[index] = MARK.sub("", line) + f" (last: {mark})"
+            end = index + 1
+            while end < len(lines) and is_heading_meta(lines[end]):
+                end += 1
+            del lines[index + 1 : end]
+            extras = runtime_lines(Path(results), lesson) + link_lines(Path(results), lesson)
+            for offset, extra in enumerate(extras):
+                lines.insert(index + 1 + offset, extra)
+            found = True
+            break
+    if not found:
+        raise SystemExit(f"no heading for {lesson}")
+    suffix = "\n" if text.endswith("\n") else ""
+    path.write_text("\n".join(lines) + suffix)
+
+
+def is_heading_meta(line):
+    return (
+        line.startswith("Minimum Runtime: ")
+        or line.startswith("Last Token Usage: ")
+        or line.startswith("[Results](")
+        or line.startswith("[Material](")
+        or line.startswith("[develop](")
+    )
+
+
+def link_lines(results, lesson):
+    lesson_dir = results / lesson
+    cutoff = cutoff_of(lesson_dir)
+    trees = in_range_trees(lesson_dir, cutoff)
+    if trees:
+        results_path = f"workshop/results/{lesson}/{trees[-1]}"
+    else:
+        results_path = f"workshop/results/{lesson}/"
+    material_root = results.parent / "material"
+    if (material_root / lesson).is_dir():
+        material_path = f"workshop/material/{lesson}/"
+    else:
+        material_path = "workshop/material/00-base/"
+    return [
+        f"[Results]({results_path})",
+        f"[Material]({material_path})",
+        "[develop](develop/)",
+    ]
+
+
+def runtime_lines(results, lesson):
+    lesson_dir = Path(results) / lesson
+    cutoff = cutoff_of(lesson_dir)
+    trees = in_range_trees(lesson_dir, cutoff)
+    sessions = [stamp for stamp in trees if (lesson_dir / stamp / "session.jsonl").is_file()]
+    if not sessions:
+        return []
+    measured = measure_record((lesson_dir / sessions[-1] / "session.jsonl").read_text())
+    extras = []
+    if measured["wall_seconds"] is not None:
+        seconds = measured["wall_seconds"]
+        extras.append(f"Minimum Runtime: {seconds // 60:02d}:{seconds % 60:02d}")
+    if measured["length"] is not None:
+        extras.append(f"Last Token Usage: {measured['length'] / 1000:.1f}k")
+    return extras
+
+
+def lesson_line(root, lesson):
+    lesson_dir = root / lesson
+    cutoff = cutoff_of(lesson_dir)
+    trees = in_range_trees(lesson_dir, cutoff)
+    sessions = [stamp for stamp in trees if (lesson_dir / stamp / "session.jsonl").is_file()]
+    suffix = ""
+    if sessions:
+        suffix = " " + measures((lesson_dir / sessions[-1] / "session.jsonl").read_text())
+    status = status_word(lesson, lesson_dir, cutoff, trees)
+    return f"{lesson:<12} {status}{suffix}"
+
+
+def newest_verdict(lesson_dir, cutoff):
+    folder = lesson_dir / "judgements"
+    if not folder.is_dir():
+        return ""
+    chosen = ""
+    verdict = ""
+    for path in folder.glob("*.md"):
+        stamp = path.stem
+        if not STAMP.fullmatch(stamp):
+            continue
+        if cutoff and stamp < cutoff:
+            continue
+        if not chosen or stamp > chosen:
+            chosen = stamp
+            verdict = ""
+            for line in path.read_text().splitlines():
+                if line == "verdict: pass" or line == "verdict: fail":
+                    verdict = line.split()[1]
+    return verdict
+
+
+def smooth_lines(root):
+    lines = []
+    for lesson in lessons(root):
+        lesson_dir = root / lesson
+        if not (lesson_dir / "JUDGE.md").is_file():
+            lines.append(f"{lesson} not yet judged")
+            continue
+        if newest_verdict(lesson_dir, cutoff_of(lesson_dir)) != "pass":
+            lines.append(f"{lesson} not smooth")
+            return lines, True
+    return lines, False
+
+
+def yaml_scalar(value):
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]+", value):
+        return value
+    if isinstance(value, str):
+        return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    raise SystemExit(f"bad yaml value: {value!r}")
+
+
+def lesson_record(root, lesson):
+    lesson_dir = root / lesson
+    cutoff = cutoff_of(lesson_dir)
+    trees = in_range_trees(lesson_dir, cutoff)
+    record = {
+        "lesson": lesson,
+        "status": status_word(lesson, lesson_dir, cutoff, trees),
+        "stamp": None,
+        "verdict": None,
+        "interactions": None,
+        "length": None,
+        "wall_seconds": None,
+        "capped": False,
+    }
+    if not trees:
+        return record
+    record["stamp"] = trees[-1]
+    verdict = newest_verdict(lesson_dir, cutoff)
+    if verdict in ("pass", "fail"):
+        record["verdict"] = verdict
+    sessions = [stamp for stamp in trees if (lesson_dir / stamp / "session.jsonl").is_file()]
+    if not sessions:
+        return record
+    measured = measure_record((lesson_dir / sessions[-1] / "session.jsonl").read_text())
+    record["interactions"] = measured["interactions"]
+    record["length"] = measured["length"]
+    record["wall_seconds"] = measured["wall_seconds"]
+    record["capped"] = measured["capped"]
+    return record
+
+
+STATUS_FIELDS = ("status", "stamp", "verdict", "interactions", "length", "wall_seconds", "capped")
+
+
+def render_status(root):
+    records = [lesson_record(root, lesson) for lesson in lessons(root)]
+    total = sum(record["wall_seconds"] for record in records if record["wall_seconds"] is not None)
+    lines = [f"baseline_wall_seconds: {total}", "lessons:"]
+    for record in records:
+        lines.append(f"  - lesson: {yaml_scalar(record['lesson'])}")
+        for field in STATUS_FIELDS:
+            lines.append(f"    {field}: {yaml_scalar(record[field])}")
+    return "\n".join(lines) + "\n"
+
+
+def write_status(root, dest):
+    Path(dest).write_text(render_status(root))
+
+
+def lines(root, only):
+    order = lessons(root)
+    names = (only,) if only else order
+    if only and only not in order:
+        raise SystemExit(f"unknown lesson: {only}")
+    return [lesson_line(root, name) for name in names]
+
+
+def baseline(printed):
+    total = 0
+    for line in printed:
+        match = re.search(r"wall_seconds=(\d+)", line)
+        if match:
+            total += int(match.group(1))
+    return f"baseline wall_seconds={total}"
+
+
+def main():
+    if len(sys.argv) < 3 or sys.argv[1] not in ("measures", "lines", "verdict", "heading", "smooth", "yaml"):
+        raise SystemExit(
+            "usage: lesson-status measures <session.jsonl> | lines <results-root> [lesson] | verdict <results-root> <lesson> | heading <journey.md> <results-root> <lesson> | smooth <results-root> | yaml <results-root> <output>"
+        )
+    if sys.argv[1] == "yaml":
+        if len(sys.argv) != 4:
+            raise SystemExit("usage: lesson-status yaml <results-root> <output>")
+        write_status(Path(sys.argv[2]), Path(sys.argv[3]))
+        return
+    if sys.argv[1] == "smooth":
+        if len(sys.argv) != 3:
+            raise SystemExit("usage: lesson-status smooth <results-root>")
+        printed, failed = smooth_lines(Path(sys.argv[2]))
+        if printed:
+            print("\n".join(printed))
+        if failed:
+            raise SystemExit(1)
+        return
+    if sys.argv[1] == "measures":
+        print(measures(Path(sys.argv[2]).read_text()))
+        return
+    if sys.argv[1] == "verdict":
+        if len(sys.argv) != 4:
+            raise SystemExit("usage: lesson-status verdict <results-root> <lesson>")
+        root = Path(sys.argv[2])
+        lesson = sys.argv[3]
+        if lesson not in lessons(root):
+            raise SystemExit(f"unknown lesson: {lesson}")
+        word = newest_verdict(root / lesson, cutoff_of(root / lesson))
+        print(word or "absent")
+        return
+    if sys.argv[1] == "heading":
+        if len(sys.argv) != 5:
+            raise SystemExit("usage: lesson-status heading <journey.md> <results-root> <lesson>")
+        write_heading(sys.argv[2], sys.argv[3], sys.argv[4])
+        return
+    root = Path(sys.argv[2])
+    only = sys.argv[3] if len(sys.argv) > 3 else ""
+    printed = lines(root, only)
+    printed.append(baseline(printed))
+    print("\n".join(printed))
+    if any(" FAIL " in f" {line} " or line.split()[1] == "FAIL" for line in printed):
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

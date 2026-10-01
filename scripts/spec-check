@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+import fnmatch
+import os
+import re
+import sys
+from pathlib import Path
+
+HEADING = re.compile(
+    r"^## M[0-9]+(([A-Za-z][A-Za-z0-9_-]*)|(-[A-Za-z0-9][A-Za-z0-9_-]*)+)?: .+ \(Status: (PENDING|IMPLEMENTING|IMPLEMENTED|PARTIALLY_DONE|SKIPPED|POSTPONED|✅ DONE)\)$"
+)
+AC = "**Acceptance Criteria:**"
+DETAILS = "**Implementation Details:**"
+FORBIDDEN = re.compile(r"^### (Implementation Details\b|M)")
+CHECKBOX = re.compile(r"^- \[[ x]\] .+$")
+CHECKED_STATUS = ("(Status: IMPLEMENTED)", "(Status: ✅ DONE)")
+SPEC_NAME = "SPEC.*.md"
+
+
+def first_violation(lines):
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if not line.startswith("## M"):
+            index += 1
+            continue
+        end = index + 1
+        while end < len(lines) and not lines[end].startswith("## "):
+            end += 1
+        body = lines[index + 1 : end]
+        owns = AC in body or any(item.startswith("**Acceptance") for item in body)
+        if owns and HEADING.fullmatch(line) is None:
+            return index + 1
+        for offset, item in enumerate(body, start=index + 2):
+            if item.startswith("**Acceptance") and item != AC:
+                return offset
+            if FORBIDDEN.match(item):
+                return offset
+        violation = subsection_violation(body, index + 2)
+        if violation is not None:
+            return violation
+        if HEADING.fullmatch(line) is not None and AC not in body:
+            return index + 1
+        if HEADING.fullmatch(line) is not None:
+            violation = box_violation(line, body, index + 2)
+            if violation is not None:
+                return violation
+        index = end
+    return None
+
+
+def subsection_violation(body, start_line):
+    criteria = []
+    details = []
+    for offset, item in enumerate(body):
+        line_no = start_line + offset
+        if item.startswith(DETAILS) and item != DETAILS:
+            return line_no
+        if item == AC:
+            criteria.append(line_no)
+        elif item == DETAILS:
+            details.append(line_no)
+    if len(criteria) > 1:
+        return criteria[1]
+    if len(details) > 1:
+        return details[1]
+    if details and (not criteria or details[0] < criteria[0]):
+        return details[0]
+    return None
+
+
+def box_violation(heading, body, start_line):
+    start = body.index(AC) + 1
+    end = next((index for index in range(start, len(body)) if body[index] == DETAILS), len(body))
+    status = heading[heading.rfind("(Status: ") :]
+    partial = status == "(Status: PARTIALLY_DONE)"
+    checked = status in CHECKED_STATUS
+    for index in range(start, end):
+        item = body[index]
+        if item == "":
+            continue
+        if CHECKBOX.fullmatch(item) is None:
+            return start_line + index
+        if partial:
+            continue
+        if item.startswith("- [x] ") != checked:
+            return start_line + index
+    return None
+
+
+def name_ok(name):
+    return fnmatch.fnmatch(name, SPEC_NAME)
+
+
+def check_file(display_path, path):
+    """Return None on success, or a '{path}:{line}' report string."""
+    if not name_ok(path.name):
+        return f"{display_path}:1"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return f"{display_path}:1"
+    line_no = first_violation(text.splitlines())
+    if line_no is not None:
+        return f"{display_path}:{line_no}"
+    return None
+
+
+def main():
+    if len(sys.argv) != 2:
+        sys.exit(1)
+    raw = sys.argv[1]
+    path = Path(raw)
+    if not path.exists():
+        print(f"{raw}:1", file=sys.stderr)
+        sys.exit(1)
+    if path.is_file():
+        report = check_file(raw, path)
+        if report is not None:
+            print(report, file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+    if path.is_dir():
+        files = sorted(p for p in path.iterdir() if p.is_file())
+        if not files:
+            print(f"{raw}:1", file=sys.stderr)
+            sys.exit(1)
+        reports = []
+        for child in files:
+            # Preserve caller-facing join for stable stderr in tests.
+            display = os.path.join(raw, child.name) if not raw.endswith(os.sep) else raw + child.name
+            report = check_file(display, child)
+            if report is not None:
+                reports.append(report)
+        if reports:
+            print("\n".join(reports), file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+    print(f"{raw}:1", file=sys.stderr)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

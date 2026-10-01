@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+cd "$root"
+just test
+shopt -s nullglob
+for spec in "$root"/docs/specs/SPEC.*.md; do
+  "$root/scripts/spec-check" "$spec"
+done
+"$root/scripts/ambiguity-check" "$root/workshop/JOURNEY.md" "$root/workshop/material" "$root/workshop/known-ambiguities.txt"
+if [[ -f "$root/workshop/prompt-distance-baseline.txt" ]]; then
+  "$root/scripts/prompt-distance" "$root/workshop/JOURNEY.md" --check-baseline "$root/workshop/prompt-distance-baseline.txt" > /dev/null
+fi
+"$root/scripts/lesson-status" smooth "$root/workshop/results"

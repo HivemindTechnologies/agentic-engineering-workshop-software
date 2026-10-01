@@ -1,0 +1,159 @@
+#!/usr/bin/env python3
+import json
+import math
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+FOLLOW_UP = "The expected files are still missing. Finish the prompt in this directory."
+
+
+def user_line(content):
+    return json.dumps({"type": "user", "message": {"role": "user", "content": content}}) + "\n"
+
+
+def section(path, lesson):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import journey
+
+    text = Path(path).read_text()
+    body = journey.section(text, lesson)
+    if body is None:
+        print(f"no section for {lesson}", file=sys.stderr)
+        return 1
+    sys.stdout.write(body.rstrip() + "\n")
+    return 0
+
+
+def install(src, work):
+    dest = Path(work) / ".claude" / "agents" / "participant.md"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(Path(src).read_text())
+    return 0
+
+
+def flag(argv, name):
+    if name not in argv:
+        print(f"missing {name}", file=sys.stderr)
+        raise SystemExit(1)
+    index = argv.index(name)
+    if index + 1 >= len(argv):
+        print(f"missing value for {name}", file=sys.stderr)
+        raise SystemExit(1)
+    return argv[index + 1]
+
+
+def expect_paths(argv):
+    paths = []
+    index = 0
+    while index < len(argv):
+        if argv[index] == "--expect":
+            paths.append(argv[index + 1])
+            index += 2
+            continue
+        index += 1
+    return paths
+
+
+def present(work, paths):
+    return bool(paths) and all((Path(work) / rel).is_file() for rel in paths)
+
+
+def rounded_up(elapsed_seconds):
+    return math.ceil(elapsed_seconds)
+
+
+def run_session(work, log, message, depth, paths, command):
+    log_path = Path(log)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    started = time.monotonic()
+    proc = subprocess.Popen(command, cwd=work, stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)
+    sent = 0
+    closed = False
+
+    def send(text):
+        nonlocal sent
+        proc.stdin.write(user_line(text))
+        proc.stdin.flush()
+        sent += 1
+
+    def close_stdin():
+        nonlocal closed
+        if closed:
+            return
+        proc.stdin.close()
+        closed = True
+
+    send(message)
+    if depth is None:
+        close_stdin()
+
+    with log_path.open("w") as out:
+        while True:
+            line = proc.stdout.readline()
+            if line == "":
+                break
+            out.write(line)
+            out.flush()
+            if depth is None or closed:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") != "result":
+                continue
+            if present(work, paths):
+                close_stdin()
+            elif sent >= depth:
+                out.write('{"type": "capped"}\n')
+                out.flush()
+                close_stdin()
+            else:
+                send(FOLLOW_UP)
+        code = proc.wait()
+        seconds = rounded_up(time.monotonic() - started)
+        out.write(json.dumps({"type": "wall", "wall_seconds": seconds}) + "\n")
+    return code
+
+
+def run_command(argv):
+    if "--" not in argv:
+        print("missing -- command", file=sys.stderr)
+        return 1
+    sep = argv.index("--")
+    flags = argv[:sep]
+    command = argv[sep + 1 :]
+    if not command:
+        print("missing command", file=sys.stderr)
+        return 1
+    if "--max" in flags:
+        print("use depth=", file=sys.stderr)
+        return 1
+    depth = None
+    if "--depth" in flags:
+        raw = flag(flags, "--depth")
+        if not raw.isdigit() or int(raw) < 1:
+            print(f"bad depth: {raw}", file=sys.stderr)
+            return 1
+        depth = int(raw)
+    return run_session(flag(flags, "--work"), flag(flags, "--log"), flag(flags, "--message"), depth, expect_paths(flags), command)
+
+
+def main(argv):
+    if not argv:
+        print("usage: participant-session section|install|run", file=sys.stderr)
+        return 1
+    if argv[0] == "section":
+        return section(argv[1], argv[2])
+    if argv[0] == "install":
+        return install(flag(argv[1:], "--from"), flag(argv[1:], "--work"))
+    if argv[0] == "run":
+        return run_command(argv[1:])
+    print(f"unknown command: {argv[0]}", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
